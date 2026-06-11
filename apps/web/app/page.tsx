@@ -22,13 +22,16 @@ function formatCount(value: number) {
 }
 
 function formatDateTime(value: string) {
+  const hasTimezone = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value);
+  const timestamp = hasTimezone ? value : `${value}Z`;
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  }).format(new Date(value));
+    timeZone: 'UTC',
+  }).format(new Date(timestamp));
 }
 
 function formatScenario(value: string | null) {

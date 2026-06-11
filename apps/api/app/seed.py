@@ -543,10 +543,7 @@ def next_month(day: date) -> date:
     return date(day.year, day.month + 1, 1)
 
 
-def validate_seed_target(database_url: str, app_env: str) -> None:
-    if app_env in {"local", "test", "development"}:
-        return
-
+def validate_seed_target(database_url: str, _app_env: str) -> None:
     parsed_url = urlparse(database_url.replace("+psycopg", "", 1))
     safe_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
     database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1]
@@ -554,8 +551,8 @@ def validate_seed_target(database_url: str, app_env: str) -> None:
         return
 
     raise SystemExit(
-        "Refusing to reseed a non-local database. Set APP_ENV=local/test or pass "
-        "--allow-destructive only for an intentional demo reset."
+        "Refusing to reseed a non-local database target. Pass --allow-destructive "
+        "only for an intentional demo reset."
     )
 
 

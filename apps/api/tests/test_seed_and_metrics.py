@@ -319,13 +319,18 @@ def test_individual_metric_endpoints_return_reviewable_contracts(
 def test_seed_cli_refuses_unsafe_database_targets() -> None:
     validate_seed_target(
         "postgresql+psycopg://ops_agent:ops_agent@localhost:5432/ops_agent",
-        "production",
+        "local",
     )
 
     with pytest.raises(SystemExit, match="Refusing to reseed"):
         validate_seed_target(
             "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
             "production",
+        )
+    with pytest.raises(SystemExit, match="Refusing to reseed"):
+        validate_seed_target(
+            "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
+            "local",
         )
 
 

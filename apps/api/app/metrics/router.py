@@ -28,7 +28,7 @@ def require_demo_metrics_access() -> None:
     if settings.app_env not in {"local", "test", "development", "demo"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Metrics endpoints require an authenticated production boundary.",
+            detail="Metrics endpoints are only available in local, test, development, or demo environments.",
         )
 
 
