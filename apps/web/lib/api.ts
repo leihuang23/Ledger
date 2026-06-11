@@ -68,7 +68,15 @@ export type DashboardMetricsResult =
   | { ok: true; data: DashboardMetrics }
   | { ok: false; error: string };
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+export function resolveApiBaseUrl(): string {
+  if (typeof window === 'undefined' && process.env.API_INTERNAL_BASE_URL) {
+    return process.env.API_INTERNAL_BASE_URL;
+  }
+
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 export async function getHealth(): Promise<HealthResponse> {
   try {
