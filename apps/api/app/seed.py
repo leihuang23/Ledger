@@ -121,6 +121,13 @@ def scenario_for_account(account_number: int) -> str | None:
     return None
 
 
+def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
+    existing_accounts = session.scalar(select(func.count()).select_from(Account)) or 0
+    if existing_accounts > 0:
+        return None
+    return reseed_database(session)
+
+
 def reseed_database(session: Session) -> SeedResult:
     try:
         clear_domain_data(session)
