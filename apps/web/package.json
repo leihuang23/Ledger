@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "next typegen && tsc --noEmit"
+    "lint": "next typegen && tsc --noEmit",
+    "test": "node --experimental-strip-types --test lib/resolveApiBaseUrl.test.ts"
   },
   "dependencies": {
     "next": "^16.0.0",
