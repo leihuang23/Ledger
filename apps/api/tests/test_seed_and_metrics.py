@@ -20,6 +20,7 @@ from app.seed import (
     SCENARIOS,
     SCENARIO_ACCOUNT_NUMBERS,
     dataset_fingerprint,
+    ensure_seeded_if_empty,
     reseed_database,
     validate_seed_target,
 )
@@ -38,6 +39,28 @@ def session_factory(tmp_path) -> Generator[Callable[[], Session], None, None]:
 
     Base.metadata.drop_all(engine)
     engine.dispose()
+
+
+def test_ensure_seeded_if_empty_skips_existing_data(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        first_result = reseed_database(session)
+        skipped_result = ensure_seeded_if_empty(session)
+
+        assert skipped_result is None
+        assert dataset_fingerprint(session) == first_result.fingerprint
+
+
+def test_ensure_seeded_if_empty_seeds_blank_database(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        result = ensure_seeded_if_empty(session)
+
+        assert result is not None
+        assert result.counts["accounts"] == 60
+        assert result.counts["product_events"] == 6000
 
 
 def test_seed_command_data_is_deterministic(
