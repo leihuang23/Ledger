@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -81,6 +82,38 @@ def test_anomalies_endpoint_returns_reviewable_incident_starting_point(
     assert anomaly["metric_evidence"]["delta_cents"] < 0
     assert anomaly["affected_accounts"]
     assert anomaly["support_signals"]
+
+
+def test_incident_creation_from_anomaly_handles_concurrent_requests(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        anomaly_id = detect_revenue_anomalies(session)[0].id
+        session.execute(delete(Incident))
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(
+                executor.map(
+                    lambda _: client.post("/incidents", json={"anomaly_id": anomaly_id}),
+                    range(2),
+                )
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    status_codes = sorted(response.status_code for response in responses)
+    assert status_codes == [200, 201]
+    incident_ids = {response.json()["id"] for response in responses}
+    assert len(incident_ids) == 1
 
 
 def test_incident_creation_from_anomaly_is_idempotent(

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.incidents.constants import (
@@ -161,8 +162,16 @@ def create_or_get_incident_from_anomaly(
         updated_at=now,
     )
     session.add(incident)
-    session.commit()
-    session.refresh(incident)
+    try:
+        session.commit()
+        session.refresh(incident)
+    except IntegrityError:
+        session.rollback()
+        raced_incident = session.get(Incident, incident_id, populate_existing=True)
+        if raced_incident is None:
+            raise
+        return _incident_detail(session, raced_incident), False
+
     return _incident_detail(session, incident), True
 
 
