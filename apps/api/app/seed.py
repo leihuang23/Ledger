@@ -9,6 +9,7 @@ from typing import Final
 from urllib.parse import urlparse
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -125,35 +126,45 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     existing_account = session.scalar(select(Account.id).limit(1))
     if existing_account is not None:
         return None
-    return reseed_database(session)
+
+    try:
+        return insert_seed_data(session)
+    except IntegrityError:
+        session.rollback()
+        if session.scalar(select(Account.id).limit(1)) is not None:
+            return None
+        raise
+
+
+def insert_seed_data(session: Session) -> SeedResult:
+    accounts = build_accounts()
+    users = build_users()
+    subscriptions = build_subscriptions()
+    invoices = build_invoices(subscriptions)
+    product_events = build_product_events()
+    support_tickets = build_support_tickets()
+
+    session.add_all(accounts)
+    session.add_all(users)
+    session.add_all(subscriptions)
+    session.add_all(invoices)
+    session.add_all(product_events)
+    session.add_all(support_tickets)
+    session.flush()
+
+    counts = seed_counts(session)
+    fingerprint = dataset_fingerprint(session)
+    session.commit()
+    return SeedResult(counts=counts, fingerprint=fingerprint)
 
 
 def reseed_database(session: Session) -> SeedResult:
     try:
         clear_domain_data(session)
-        accounts = build_accounts()
-        users = build_users()
-        subscriptions = build_subscriptions()
-        invoices = build_invoices(subscriptions)
-        product_events = build_product_events()
-        support_tickets = build_support_tickets()
-
-        session.add_all(accounts)
-        session.add_all(users)
-        session.add_all(subscriptions)
-        session.add_all(invoices)
-        session.add_all(product_events)
-        session.add_all(support_tickets)
-        session.flush()
-
-        counts = seed_counts(session)
-        fingerprint = dataset_fingerprint(session)
-        session.commit()
+        return insert_seed_data(session)
     except Exception:
         session.rollback()
         raise
-
-    return SeedResult(counts=counts, fingerprint=fingerprint)
 
 
 def clear_domain_data(session: Session) -> None:
