@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,6 +63,24 @@ def test_ensure_seeded_if_empty_seeds_blank_database(
         assert result is not None
         assert result.counts["accounts"] == 60
         assert result.counts["product_events"] == 6000
+
+
+def test_ensure_seeded_if_empty_handles_concurrent_bootstrap(
+    session_factory: Callable[[], Session],
+) -> None:
+    start_barrier = threading.Barrier(2)
+
+    def bootstrap() -> object:
+        with session_factory() as session:
+            start_barrier.wait(timeout=5)
+            return ensure_seeded_if_empty(session)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: bootstrap(), range(2)))
+
+    assert sum(result is not None for result in results) == 1
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(Account)) == 60
 
 
 def test_seed_command_data_is_deterministic(
