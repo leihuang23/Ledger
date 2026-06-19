@@ -65,6 +65,24 @@ def test_ensure_seeded_if_empty_seeds_blank_database(
         assert result.counts["product_events"] == 6000
 
 
+def test_ensure_seeded_if_empty_refuses_unsafe_remote_database(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            with pytest.raises(SystemExit, match="Refusing to reseed"):
+                ensure_seeded_if_empty(session)
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        get_settings.cache_clear()
+
+
 def test_ensure_seeded_if_empty_handles_concurrent_bootstrap(
     session_factory: Callable[[], Session],
 ) -> None:
