@@ -127,6 +127,15 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     if existing_account is not None:
         return None
 
+    settings = get_settings()
+    if not settings.allow_unsafe_bootstrap_seed:
+        try:
+            validate_seed_target(settings.database_url, settings.app_env)
+        except SystemExit as exc:
+            raise SystemExit(
+                "Refusing to reseed a non-local database target during bootstrap. Set "
+                "ALLOW_UNSAFE_BOOTSTRAP_SEED=true only for an intentional demo reset."
+            ) from exc
     try:
         return insert_seed_data(session)
     except IntegrityError:
