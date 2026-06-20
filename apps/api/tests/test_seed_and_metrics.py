@@ -83,6 +83,26 @@ def test_ensure_seeded_if_empty_refuses_unsafe_remote_database(
         get_settings.cache_clear()
 
 
+def test_ensure_seeded_if_empty_allows_remote_database_when_explicitly_overridden(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    monkeypatch.setenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", "true")
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            result = ensure_seeded_if_empty(session)
+            assert result is not None
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", raising=False)
+        get_settings.cache_clear()
+
+
 def test_ensure_seeded_if_empty_handles_concurrent_bootstrap(
     session_factory: Callable[[], Session],
 ) -> None:
