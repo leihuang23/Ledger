@@ -67,7 +67,8 @@ def test_run_startup_bootstrap_skips_reseed_when_data_exists(
     with session_factory() as session:
         reseed_database(session)
 
-    monkeypatch.setattr("app.bootstrap.engine", session_factory().bind)
+    with session_factory() as session:
+        monkeypatch.setattr("app.bootstrap.engine", session.get_bind())
     monkeypatch.setattr("app.bootstrap.SessionLocal", session_factory)
 
     with patch("app.bootstrap.run_migrations") as run_migrations:
