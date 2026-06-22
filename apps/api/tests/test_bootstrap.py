@@ -31,11 +31,11 @@ def session_factory(tmp_path) -> Generator[Callable[[], Session], None, None]:
 def test_bootstrap_lock_is_noop_for_non_postgres_dialects(
     session_factory: Callable[[], Session],
 ) -> None:
-    with session_factory().bind.connect() as connection:
-        engine = connection.engine
+    with session_factory() as session:
+        engine = session.get_bind()
 
-        with bootstrap_lock(engine):
-            pass
+    with bootstrap_lock(engine):
+        pass
 
 
 def test_run_startup_bootstrap_migrates_and_seeds_blank_database(
