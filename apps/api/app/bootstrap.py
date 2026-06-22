@@ -20,19 +20,21 @@ def bootstrap_lock(db_engine: Engine = engine) -> Iterator[None]:
         yield
         return
 
-    connection = db_engine.connect()
-    try:
-        connection.execute(
-            text("SELECT pg_advisory_lock(:lock_id)"),
-            {"lock_id": BOOTSTRAP_LOCK_ID},
-        )
-        yield
-    finally:
-        connection.execute(
-            text("SELECT pg_advisory_unlock(:lock_id)"),
-            {"lock_id": BOOTSTRAP_LOCK_ID},
-        )
-        connection.close()
+    with db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        acquired = False
+        try:
+            connection.execute(
+                text("SELECT pg_advisory_lock(:lock_id)"),
+                {"lock_id": BOOTSTRAP_LOCK_ID},
+            )
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_id)"),
+                    {"lock_id": BOOTSTRAP_LOCK_ID},
+                )
 
 
 def run_migrations() -> None:
