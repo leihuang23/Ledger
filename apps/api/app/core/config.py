@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     )
     redis_url: str = "redis://localhost:6379/0"
     backend_cors_origins: list[str] = ["http://localhost:3000"]
+    allow_unsafe_bootstrap_seed: bool = False
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod

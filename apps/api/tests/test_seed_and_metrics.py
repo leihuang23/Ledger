@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,6 +63,82 @@ def test_ensure_seeded_if_empty_seeds_blank_database(
         assert result is not None
         assert result.counts["accounts"] == 60
         assert result.counts["product_events"] == 6000
+
+
+def test_ensure_seeded_if_empty_refuses_production_environment(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@postgres:5432/ops_agent",
+    )
+    monkeypatch.setenv("APP_ENV", "production")
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            with pytest.raises(SystemExit, match="Refusing to reseed"):
+                ensure_seeded_if_empty(session)
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("APP_ENV", raising=False)
+        get_settings.cache_clear()
+
+
+def test_ensure_seeded_if_empty_refuses_unsafe_remote_database(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            with pytest.raises(SystemExit, match="Refusing to reseed"):
+                ensure_seeded_if_empty(session)
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        get_settings.cache_clear()
+
+
+def test_ensure_seeded_if_empty_allows_remote_database_when_explicitly_overridden(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    monkeypatch.setenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", "true")
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            result = ensure_seeded_if_empty(session)
+            assert result is not None
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", raising=False)
+        get_settings.cache_clear()
+
+
+def test_ensure_seeded_if_empty_handles_concurrent_bootstrap(
+    session_factory: Callable[[], Session],
+) -> None:
+    start_barrier = threading.Barrier(2)
+
+    def bootstrap() -> object:
+        with session_factory() as session:
+            start_barrier.wait(timeout=5)
+            return ensure_seeded_if_empty(session)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: bootstrap(), range(2)))
+
+    assert sum(result is not None for result in results) == 1
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(Account)) == 60
 
 
 def test_seed_command_data_is_deterministic(
@@ -507,15 +585,20 @@ def test_seed_cli_refuses_unsafe_database_targets() -> None:
         "local",
     )
 
-    with pytest.raises(SystemExit, match="Refusing to reseed"):
+    with pytest.raises(SystemExit, match="Refusing to reseed outside local"):
+        validate_seed_target(
+            "postgresql+psycopg://ops_agent:ops_agent@postgres:5432/ops_agent",
+            "production",
+        )
+    with pytest.raises(SystemExit, match="Refusing to reseed a non-local database target"):
         validate_seed_target(
             "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
-            "production",
+            "local",
         )
     with pytest.raises(SystemExit, match="Refusing to reseed"):
         validate_seed_target(
             "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
-            "local",
+            "production",
         )
 
 

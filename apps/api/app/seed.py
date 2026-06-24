@@ -9,6 +9,7 @@ from typing import Final
 from urllib.parse import urlparse
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -133,37 +134,58 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     existing_account = session.scalar(select(Account.id).limit(1))
     if existing_account is not None:
         return None
-    return reseed_database(session)
+
+    settings = get_settings()
+    if not settings.allow_unsafe_bootstrap_seed:
+        try:
+            validate_seed_target(settings.database_url, settings.app_env)
+        except SystemExit as exc:
+            raise SystemExit(
+                f"{exc}  Set ALLOW_UNSAFE_BOOTSTRAP_SEED=true only for an intentional demo reset."
+            ) from exc
+    try:
+        return insert_seed_data(session)
+    except IntegrityError:
+        session.rollback()
+        if session.scalar(select(Account.id).limit(1)) is not None:
+            return None
+        raise
+    except Exception:
+        session.rollback()
+        raise
+
+
+def insert_seed_data(session: Session) -> SeedResult:
+    accounts = build_accounts()
+    users = build_users()
+    subscriptions = build_subscriptions()
+    invoices = build_invoices(subscriptions)
+    product_events = build_product_events()
+    support_tickets = build_support_tickets()
+
+    session.add_all(accounts)
+    session.add_all(users)
+    session.add_all(subscriptions)
+    session.add_all(invoices)
+    session.add_all(product_events)
+    session.add_all(support_tickets)
+    session.flush()
+    session.add_all(build_incidents(session))
+    session.flush()
+
+    counts = seed_counts(session)
+    fingerprint = dataset_fingerprint(session)
+    session.commit()
+    return SeedResult(counts=counts, fingerprint=fingerprint)
 
 
 def reseed_database(session: Session) -> SeedResult:
     try:
         clear_domain_data(session)
-        accounts = build_accounts()
-        users = build_users()
-        subscriptions = build_subscriptions()
-        invoices = build_invoices(subscriptions)
-        product_events = build_product_events()
-        support_tickets = build_support_tickets()
-
-        session.add_all(accounts)
-        session.add_all(users)
-        session.add_all(subscriptions)
-        session.add_all(invoices)
-        session.add_all(product_events)
-        session.add_all(support_tickets)
-        session.flush()
-        session.add_all(build_incidents(session))
-        session.flush()
-
-        counts = seed_counts(session)
-        fingerprint = dataset_fingerprint(session)
-        session.commit()
+        return insert_seed_data(session)
     except Exception:
         session.rollback()
         raise
-
-    return SeedResult(counts=counts, fingerprint=fingerprint)
 
 
 def clear_domain_data(session: Session) -> None:
@@ -801,7 +823,18 @@ def next_month(day: date) -> date:
     return date(day.year, day.month + 1, 1)
 
 
-def validate_seed_target(database_url: str, _app_env: str) -> None:
+DEMO_ENVIRONMENTS: Final[frozenset[str]] = frozenset(
+    {"local", "test", "development", "demo"}
+)
+
+
+def validate_seed_target(database_url: str, app_env: str) -> None:
+    if app_env not in DEMO_ENVIRONMENTS:
+        raise SystemExit(
+            "Refusing to reseed outside local, test, development, or demo environments. "
+            "Pass --allow-destructive only for an intentional demo reset."
+        )
+
     parsed_url = urlparse(database_url.replace("+psycopg", "", 1))
     safe_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
     database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1]
