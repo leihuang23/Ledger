@@ -66,6 +66,7 @@ def test_bootstrap_lock_acquires_and_releases_advisory_lock_for_postgres_dialect
     )
     assert connection.execute.call_args_list[1].args[1] == {"lock_id": BOOTSTRAP_LOCK_ID}
 
+
 def test_run_startup_bootstrap_migrates_and_seeds_blank_database(
     session_factory: Callable[[], Session],
     monkeypatch,

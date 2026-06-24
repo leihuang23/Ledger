@@ -1,46 +1,32 @@
-import type { DashboardMetrics } from '@/lib/api';
-import { getDashboardMetrics, getHealth } from '@/lib/api';
+import Link from 'next/link';
 
-const moneyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-});
+import { openIncidentFromAnomaly } from '@/app/actions';
+import type { DashboardMetrics, RevenueAnomaliesResult, RevenueAnomaly } from '@/lib/api';
+import { getDashboardMetrics, getHealth, getRevenueAnomalies } from '@/lib/api';
+import {
+  formatCount,
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPercent,
+  formatScenario,
+} from '@/lib/format';
 
-const numberFormatter = new Intl.NumberFormat('en-US');
+type HomeProps = {
+  searchParams?: {
+    incident_error?: string;
+  };
+};
 
-function formatMoney(cents: number) {
-  return moneyFormatter.format(cents / 100);
-}
-
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
-}
-
-function formatCount(value: number) {
-  return numberFormatter.format(value);
-}
-
-function formatDateTime(value: string) {
-  const hasTimezone = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value);
-  const timestamp = hasTimezone ? value : `${value}Z`;
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp));
-}
-
-function formatScenario(value: string | null) {
-  return value ? value.replaceAll('_', ' ') : 'routine failure';
-}
-
-export default async function Home() {
-  const [health, dashboardResult] = await Promise.all([getHealth(), getDashboardMetrics()]);
+export default async function Home({ searchParams }: HomeProps) {
+  const [health, dashboardResult, anomaliesResult] = await Promise.all([
+    getHealth(),
+    getDashboardMetrics(),
+    getRevenueAnomalies(),
+  ]);
   const apiOnline = health.status === 'ok';
+  const incidentError =
+    typeof searchParams?.incident_error === 'string' ? searchParams.incident_error : null;
 
   return (
     <main className="dashboard-shell">
@@ -55,8 +41,14 @@ export default async function Home() {
         </div>
       </header>
 
+      {incidentError ? (
+        <section className="panel anomaly-panel" aria-live="polite">
+          <div className="panel-message error-detail">{incidentError}</div>
+        </section>
+      ) : null}
+
       {dashboardResult.ok ? (
-        <Dashboard data={dashboardResult.data} />
+        <Dashboard data={dashboardResult.data} anomaliesResult={anomaliesResult} />
       ) : (
         <UnavailablePanel error={dashboardResult.error} />
       )}
@@ -64,7 +56,13 @@ export default async function Home() {
   );
 }
 
-function Dashboard({ data }: { data: DashboardMetrics }) {
+function Dashboard({
+  data,
+  anomaliesResult,
+}: {
+  data: DashboardMetrics;
+  anomaliesResult: RevenueAnomaliesResult;
+}) {
   const categoryMax = Math.max(
     ...data.ticket_volume.by_category_30d.map((category) => category.count),
     1,
@@ -90,6 +88,8 @@ function Dashboard({ data }: { data: DashboardMetrics }) {
           <strong>{formatCount(data.ticket_volume.total_tickets_30d)}</strong>
         </div>
       </section>
+
+      <AnomalyPanel result={anomaliesResult} />
 
       <section className="metric-grid" aria-label="Business metrics">
         <MetricCard
@@ -211,6 +211,88 @@ function Dashboard({ data }: { data: DashboardMetrics }) {
         </div>
       </section>
     </>
+  );
+}
+
+function AnomalyPanel({ result }: { result: RevenueAnomaliesResult }) {
+  return (
+    <section className="panel anomaly-panel">
+      <div className="panel-header">
+        <h2>Detected revenue anomalies</h2>
+        <span>Week-over-week checks</span>
+      </div>
+      {!result.ok ? (
+        <div className="panel-message error-detail">{result.error}</div>
+      ) : result.data.length === 0 ? (
+        <div className="panel-message">No current revenue anomalies detected.</div>
+      ) : (
+        <div className="anomaly-list">
+          {result.data.map((anomaly) => (
+            <AnomalyRow anomaly={anomaly} key={anomaly.id} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AnomalyRow({ anomaly }: { anomaly: RevenueAnomaly }) {
+  const affectedAccountNames = anomaly.affected_accounts
+    .slice(0, 4)
+    .map((account) => account.account_name)
+    .join(', ');
+
+  return (
+    <article className="anomaly-row">
+      <div className="anomaly-main">
+        <div>
+          <span className={`severity-pill severity-${anomaly.severity}`}>
+            {anomaly.severity}
+          </span>
+          <h3>{anomaly.title}</h3>
+          <p>{anomaly.summary}</p>
+        </div>
+        {anomaly.incident_id ? (
+          <Link className="action-button" href={`/incidents/${anomaly.incident_id}`}>
+            View incident
+          </Link>
+        ) : (
+          <form action={openIncidentFromAnomaly}>
+            <input name="anomaly_id" type="hidden" value={anomaly.id} />
+            <button className="action-button" type="submit">
+              Open incident
+            </button>
+          </form>
+        )}
+      </div>
+      <dl className="anomaly-facts">
+        <div>
+          <dt>Paid MRR delta</dt>
+          <dd>{formatMoney(anomaly.metric_evidence.delta_cents)}</dd>
+        </div>
+        <div>
+          <dt>Current window</dt>
+          <dd>
+            {formatDate(anomaly.metric_evidence.current_window_start)} -{' '}
+            {formatDate(anomaly.metric_evidence.current_window_end)}
+          </dd>
+        </div>
+        <div>
+          <dt>Failed renewals</dt>
+          <dd>
+            {formatCount(anomaly.metric_evidence.failed_invoice_count)} invoices,{' '}
+            {formatMoney(anomaly.metric_evidence.failed_invoice_cents)}
+          </dd>
+        </div>
+        <div>
+          <dt>Affected accounts</dt>
+          <dd>
+            {affectedAccountNames}
+            {anomaly.affected_accounts.length > 4 ? '...' : ''}
+          </dd>
+        </div>
+      </dl>
+    </article>
   );
 }
 
