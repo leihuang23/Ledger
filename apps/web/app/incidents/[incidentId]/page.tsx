@@ -11,13 +11,13 @@ import {
 } from '@/lib/format';
 
 type IncidentPageProps = {
-  params: {
+  params: Promise<{
     incidentId: string;
-  };
+  }>;
 };
 
 export default async function IncidentPage({ params }: IncidentPageProps) {
-  const { incidentId } = params;
+  const { incidentId } = await params;
   const result = await getIncident(incidentId);
 
   if (!result.ok) {
@@ -56,6 +56,9 @@ export default async function IncidentPage({ params }: IncidentPageProps) {
             {incident.severity}
           </span>
           <span className="status-pill incident-status">{incident.status}</span>
+          <Link className="action-button secondary-action" href="/knowledge">
+            Knowledge
+          </Link>
           <Link className="action-button secondary-action" href="/">
             Dashboard
           </Link>

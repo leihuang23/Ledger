@@ -163,6 +163,35 @@ export type CreateIncidentFromAnomalyResult =
   | { ok: true; data: IncidentDetail }
   | { ok: false; error: string };
 
+export type KnowledgeCitation = {
+  source_id: string;
+  chunk_id: string;
+  title: string;
+  document_type: string;
+  heading_path: string;
+  source_path: string;
+  source_uri: string | null;
+  chunk_index: number;
+  tags: string[];
+};
+
+export type KnowledgeSearchItem = {
+  source_id: string;
+  title: string;
+  snippet: string;
+  score: number;
+  citation: KnowledgeCitation;
+};
+
+export type KnowledgeSearchResponse = {
+  query: string;
+  results: KnowledgeSearchItem[];
+};
+
+export type KnowledgeSearchResult =
+  | { ok: true; data: KnowledgeSearchResponse }
+  | { ok: false; error: string };
+
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -300,6 +329,50 @@ export async function getIncident(incidentId: string): Promise<IncidentDetailRes
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Incident endpoint unavailable',
+    };
+  }
+}
+
+export async function searchKnowledge(query: string): Promise<KnowledgeSearchResult> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return {
+      ok: true,
+      data: {
+        query: '',
+        results: [],
+      },
+    };
+  }
+
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/documents/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: trimmedQuery, limit: 8 }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Knowledge search returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as KnowledgeSearchResponse,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Knowledge search unavailable',
     };
   }
 }

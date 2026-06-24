@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-tests:
+    name: api-tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: test_ops_agent
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install API dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint API
+        run: python -m pip install ruff && ruff check .
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent
+        run: alembic upgrade head
+
+      - name: Run API tests
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent
+        run: pytest
+
+  web-build:
+    name: web-build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Typecheck web app
+        run: npm run lint
+
+      - name: Test web app
+        run: npm test
+
+      - name: Build web app
+        run: npm run build

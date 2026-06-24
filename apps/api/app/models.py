@@ -7,6 +7,9 @@ from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Intege
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import EmbeddingVector
+
+KNOWLEDGE_EMBEDDING_DIMENSIONS = 96
 
 
 class Account(Base):
@@ -173,6 +176,59 @@ class Incident(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    owner: Mapped[str | None] = mapped_column(String(120))
+    source_path: Mapped[str] = mapped_column(String(240), nullable=False, unique=True)
+    source_uri: Mapped[str | None] = mapped_column(String(240))
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    chunks: Mapped[list[KnowledgeDocumentChunk]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class KnowledgeDocumentChunk(Base):
+    __tablename__ = "knowledge_document_chunks"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        String(96),
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    heading_path: Mapped[str] = mapped_column(String(240), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        EmbeddingVector(KNOWLEDGE_EMBEDDING_DIMENSIONS), nullable=False
+    )
+    citation_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
+
+
 Index("ix_invoices_account_date", Invoice.account_id, Invoice.invoice_date)
 Index("ix_product_events_account_time", ProductEvent.account_id, ProductEvent.event_time)
 Index("ix_support_tickets_account_created", SupportTicket.account_id, SupportTicket.created_at)
+Index(
+    "ix_knowledge_document_chunks_document_index",
+    KnowledgeDocumentChunk.document_id,
+    KnowledgeDocumentChunk.chunk_index,
+    unique=True,
+)

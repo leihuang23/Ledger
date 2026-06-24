@@ -26,6 +26,7 @@ dev = [
 
 [project.scripts]
 seed-saas-data = "app.seed:main"
+ingest-knowledge-docs = "app.knowledge.ingestion:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,3 +34,6 @@ pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.knowledge" = ["docs/*.md"]

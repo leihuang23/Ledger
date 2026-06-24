@@ -86,6 +86,17 @@ If implementation effort grows, cut optional infrastructure before cutting evide
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages. Use structured prefixes (`feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`) with an optional scope, and include a concise description in the imperative mood. Append a body when the change needs additional context (e.g., breaking changes, motivation, or side effects). Do not commit with vague or single-word messages.
 
+## Learning Files
+
+When the user asks to create a learning file for current changes:
+
+- Inspect the existing Markdown files in `learning/` first and match their naming, structure, tone, and audience.
+- Use the next `week-N.md` filename unless the user asks for another format.
+- Write the file as a reviewer-oriented learning guide, not a changelog. Explain what the slice proves, which files to read, the key ideas, review questions, verification commands, and operational gotchas.
+- Tailor the guide to a JavaScript full-stack developer learning the Python/FastAPI/Postgres parts when that matches the existing notes.
+- Ground the content in the actual changed files and verified behavior from the current branch.
+- Include environment variables, manual checks, and testing commands when they are relevant to the slice.
+- Note that `learning/` is ignored by `.gitignore`; if the file should be committed, it must be force-added explicitly.
 
 ## Working Style For Future Agents
 

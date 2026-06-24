@@ -21,7 +21,18 @@ from app.incidents.constants import (
     incident_id_for_anomaly,
     revenue_week_windows,
 )
-from app.models import Account, Incident, Invoice, ProductEvent, Subscription, SupportTicket, User
+from app.knowledge.ingestion import ingest_builtin_knowledge_documents
+from app.models import (
+    Account,
+    Incident,
+    Invoice,
+    KnowledgeDocument,
+    KnowledgeDocumentChunk,
+    ProductEvent,
+    Subscription,
+    SupportTicket,
+    User,
+)
 
 DATASET_ANCHOR: Final[datetime] = datetime(2026, 6, 9, 12, 0, 0)
 ACCOUNT_COUNT: Final[int] = 60
@@ -107,6 +118,8 @@ SCENARIO_ACCOUNT_NUMBERS: Final[dict[str, set[int]]] = {
 }
 
 MODEL_ORDER: Final[tuple[type, ...]] = (
+    KnowledgeDocumentChunk,
+    KnowledgeDocument,
     Incident,
     SupportTicket,
     ProductEvent,
@@ -133,6 +146,7 @@ def scenario_for_account(account_number: int) -> str | None:
 def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     existing_account = session.scalar(select(Account.id).limit(1))
     if existing_account is not None:
+        ingest_builtin_knowledge_documents(session, force=False)
         return None
 
     settings = get_settings()
@@ -172,6 +186,7 @@ def insert_seed_data(session: Session) -> SeedResult:
     session.flush()
     session.add_all(build_incidents(session))
     session.flush()
+    ingest_builtin_knowledge_documents(session, commit=False)
 
     counts = seed_counts(session)
     fingerprint = dataset_fingerprint(session)
@@ -755,6 +770,8 @@ def seed_counts(session: Session) -> dict[str, int]:
         "product_events": ProductEvent,
         "support_tickets": SupportTicket,
         "incidents": Incident,
+        "knowledge_documents": KnowledgeDocument,
+        "knowledge_document_chunks": KnowledgeDocumentChunk,
     }
     return {
         table_name: session.scalar(select(func.count()).select_from(model)) or 0
@@ -772,6 +789,11 @@ def dataset_fingerprint(session: Session) -> str:
         session.scalar(select(Invoice.status).where(Invoice.id == "inv_001_10")),
         session.scalar(select(ProductEvent.event_name).where(ProductEvent.id == "evt_000500")),
         session.scalar(select(SupportTicket.subject).where(SupportTicket.id == "tkt_0001")),
+        session.scalar(
+            select(KnowledgeDocument.title).where(
+                KnowledgeDocument.id == "kb-runbook-billing-retry-regression"
+            )
+        ),
     ]
     for sample in samples:
         digest.update(str(sample).encode("utf-8"))
@@ -838,7 +860,8 @@ def validate_seed_target(database_url: str, app_env: str) -> None:
     parsed_url = urlparse(database_url.replace("+psycopg", "", 1))
     safe_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
     database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1]
-    if parsed_url.hostname in safe_hosts and database_name in {"ops_agent", "ops_agent_test"}:
+    safe_database_names = {"ops_agent", "ops_agent_test", "test_ops_agent"}
+    if parsed_url.hostname in safe_hosts and database_name in safe_database_names:
         return
 
     raise SystemExit(

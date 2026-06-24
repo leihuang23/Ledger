@@ -17,7 +17,16 @@ from app.main import app
 from app.core.config import get_settings
 from app.metrics.router import require_demo_metrics_access
 from app.metrics.service import get_dashboard_metrics
-from app.models import Account, Invoice, ProductEvent, Subscription, SupportTicket, User
+from app.models import (
+    Account,
+    Invoice,
+    KnowledgeDocument,
+    KnowledgeDocumentChunk,
+    ProductEvent,
+    Subscription,
+    SupportTicket,
+    User,
+)
 from app.seed import (
     SCENARIOS,
     SCENARIO_ACCOUNT_NUMBERS,
@@ -148,7 +157,7 @@ def test_seed_command_data_is_deterministic(
         first_result = reseed_database(session)
         second_result = reseed_database(session)
 
-        assert first_result.counts == {
+        expected_domain_counts = {
             "accounts": 60,
             "users": 300,
             "subscriptions": 60,
@@ -157,12 +166,26 @@ def test_seed_command_data_is_deterministic(
             "support_tickets": 240,
             "incidents": 1,
         }
+        for table_name, expected_count in expected_domain_counts.items():
+            assert first_result.counts[table_name] == expected_count
+        assert first_result.counts["knowledge_documents"] >= 20
+        assert first_result.counts["knowledge_document_chunks"] >= first_result.counts[
+            "knowledge_documents"
+        ]
         assert second_result.counts == first_result.counts
         assert second_result.fingerprint == first_result.fingerprint
         assert dataset_fingerprint(session) == first_result.fingerprint
         assert (
             session.scalar(select(Invoice.status).where(Invoice.id == "inv_001_10"))
             == "failed"
+        )
+        assert (
+            session.scalar(
+                select(KnowledgeDocument.title).where(
+                    KnowledgeDocument.id == "kb-runbook-billing-retry-regression"
+                )
+            )
+            == "Billing Retry Regression Runbook"
         )
 
 
@@ -242,10 +265,20 @@ def test_seeded_records_are_referentially_consistent(
             .join(Subscription, Invoice.subscription_id == Subscription.id)
             .where(Invoice.amount_cents != Subscription.mrr_cents)
         )
+        chunk_orphans = session.scalar(
+            select(func.count())
+            .select_from(KnowledgeDocumentChunk)
+            .outerjoin(
+                KnowledgeDocument,
+                KnowledgeDocumentChunk.document_id == KnowledgeDocument.id,
+            )
+            .where(KnowledgeDocument.id.is_(None))
+        )
 
         assert invoice_orphans == 0
         assert event_orphans == 0
         assert ticket_orphans == 0
+        assert chunk_orphans == 0
         assert mismatched_invoice_amounts == 0
 
 
@@ -583,6 +616,10 @@ def test_seed_cli_refuses_unsafe_database_targets() -> None:
     validate_seed_target(
         "postgresql+psycopg://ops_agent:ops_agent@localhost:5432/ops_agent",
         "local",
+    )
+    validate_seed_target(
+        "postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent",
+        "test",
     )
 
     with pytest.raises(SystemExit, match="Refusing to reseed outside local"):

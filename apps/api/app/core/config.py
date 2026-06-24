@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,12 +15,23 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     backend_cors_origins: list[str] = ["http://localhost:3000"]
     allow_unsafe_bootstrap_seed: bool = False
+    embedding_provider: Literal["local"] = "local"
+    embedding_model: Literal["local-hashing-v1"] = "local-hashing-v1"
+    document_ingest_token: str | None = None
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("document_ingest_token", mode="before")
+    @classmethod
+    def parse_optional_token(cls, value: str | None) -> str | None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
         return value
 
     model_config = SettingsConfigDict(
