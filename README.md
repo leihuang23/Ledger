@@ -4,7 +4,7 @@ Ops Agent is a production-shaped SaaS revenue and support investigation workspac
 
 The product is intentionally not a toy chatbot. Its core promise is an auditable agent loop that combines revenue analytics, product usage, support tickets, knowledge documents, controlled action drafts, approval gates, run traces, and evals. Every important claim should be backed by cited evidence from queried data or retrieved documents.
 
-This repository currently contains the initial monorepo spine: FastAPI backend, Next.js frontend, PostgreSQL, Redis, SQLAlchemy 2, Alembic, Pydantic v2, Docker Compose, and a backend smoke test.
+This repository currently contains the initial monorepo spine: FastAPI backend, Next.js frontend, PostgreSQL with pgvector, Redis, SQLAlchemy 2, Alembic, Pydantic v2, Docker Compose, and backend tests.
 
 ## Product Direction
 
@@ -76,8 +76,32 @@ python -m app.seed --json
 ```
 
 This recreates the seeded SaaS domain tables with 60 accounts, 600 invoices,
-6,000 product events, 240 support tickets, and 1 open incident. Re-running it
-should produce the same counts and fingerprint.
+6,000 product events, 240 support tickets, 1 open incident, and the built-in
+knowledge base documents. Re-running it should produce the same counts and
+fingerprint.
+
+Ingest or refresh only the built-in knowledge base:
+
+```bash
+cd apps/api
+python -m app.knowledge.ingestion --json
+```
+
+The HTTP refresh endpoint `POST /documents/ingest` is disabled unless
+`DOCUMENT_INGEST_TOKEN` is set. When enabled, callers must pass
+`X-Document-Ingest-Token: <token>`. Prefer the CLI/bootstrap path for normal
+local setup.
+
+The local embedding path is deterministic and does not require external
+credentials:
+
+- `EMBEDDING_PROVIDER=local`
+- `EMBEDDING_MODEL=local-hashing-v1`
+- `DOCUMENT_INGEST_TOKEN=` optional token for the mutating HTTP ingest endpoint
+
+Postgres must have pgvector available because Alembic creates a `vector(96)`
+embedding column and HNSW cosine index. Docker Compose uses the
+`pgvector/pgvector:pg16` image for this.
 
 ## Frontend Development
 
@@ -86,6 +110,9 @@ cd apps/web
 npm install
 npm run dev
 ```
+
+Knowledge search is available at `http://localhost:3000/knowledge` after the
+API database has been migrated and seeded or after `POST /documents/ingest`.
 
 ## Smoke Test
 
@@ -105,7 +132,7 @@ pytest tests/test_health.py
 - [ ] Add scenario integrity tests so seed data stays internally consistent.
 - [ ] Implement revenue metrics and anomaly endpoints.
 - [ ] Implement support-ticket and account-detail endpoints.
-- [ ] Add document ingestion and retrieval with cited excerpts.
+- [x] Add document ingestion and retrieval with cited excerpts.
 - [ ] Build the LangGraph investigation workflow with explicit intermediate artifacts.
 - [ ] Persist agent run steps, evidence bundles, token/cost estimates, and final reports.
 - [ ] Add approval-gated mock actions for Slack, email, task creation, and CRM updates.
