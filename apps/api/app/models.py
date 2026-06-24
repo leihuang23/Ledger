@@ -3,7 +3,19 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -175,6 +187,10 @@ class Incident(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
+    agent_runs: Mapped[list[AgentRun]] = relationship(
+        back_populates="incident", cascade="all, delete-orphan"
+    )
+
 
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
@@ -223,6 +239,55 @@ class KnowledgeDocumentChunk(Base):
     document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
 
 
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    incident_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(96), index=True)
+    input_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    final_report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_estimate_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    incident: Mapped[Incident] = relationship(back_populates="agent_runs")
+    steps: Mapped[list[AgentRunStep]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="AgentRunStep.sequence"
+    )
+
+
+class AgentRunStep(Base):
+    __tablename__ = "agent_run_steps"
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_agent_run_steps_run_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(48), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    tool_name: Mapped[str | None] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    outputs: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    run: Mapped[AgentRun] = relationship(back_populates="steps")
+
+
 Index("ix_invoices_account_date", Invoice.account_id, Invoice.invoice_date)
 Index("ix_product_events_account_time", ProductEvent.account_id, ProductEvent.event_time)
 Index("ix_support_tickets_account_created", SupportTicket.account_id, SupportTicket.created_at)
@@ -232,3 +297,4 @@ Index(
     KnowledgeDocumentChunk.chunk_index,
     unique=True,
 )
+Index("ix_agent_run_steps_run_stage", AgentRunStep.run_id, AgentRunStep.stage)

@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 
-import { createIncidentFromAnomaly } from '@/lib/api';
+import { createIncidentFromAnomaly, startInvestigation } from '@/lib/api';
 
 export async function openIncidentFromAnomaly(formData: FormData) {
   const anomalyId = formData.get('anomaly_id');
@@ -15,5 +15,20 @@ export async function openIncidentFromAnomaly(formData: FormData) {
     redirect(`/?incident_error=${encodeURIComponent(incident.error)}`);
   }
 
-  redirect(`/incidents/${incident.data.id}`);
+  redirect(`/incidents/${encodeURIComponent(incident.data.id)}`);
+}
+
+export async function startInvestigationFromIncident(formData: FormData) {
+  const incidentId = formData.get('incident_id');
+  if (typeof incidentId !== 'string' || incidentId.length === 0) {
+    throw new Error('Missing incident id');
+  }
+
+  const encodedIncidentId = encodeURIComponent(incidentId);
+  const run = await startInvestigation(incidentId);
+  if (!run.ok) {
+    redirect(`/incidents/${encodedIncidentId}?investigation_error=${encodeURIComponent(run.error)}`);
+  }
+
+  redirect(`/agent/runs/${encodeURIComponent(run.data.id)}`);
 }
