@@ -24,12 +24,15 @@ from app.incidents.constants import (
 from app.knowledge.ingestion import ingest_builtin_knowledge_documents
 from app.models import (
     Account,
+    ActionAuditEvent,
     AgentRun,
     AgentRunStep,
+    ApprovalRequest,
     Incident,
     Invoice,
     KnowledgeDocument,
     KnowledgeDocumentChunk,
+    MockAction,
     ProductEvent,
     Subscription,
     SupportTicket,
@@ -120,6 +123,9 @@ SCENARIO_ACCOUNT_NUMBERS: Final[dict[str, set[int]]] = {
 }
 
 MODEL_ORDER: Final[tuple[type, ...]] = (
+    ActionAuditEvent,
+    ApprovalRequest,
+    MockAction,
     AgentRunStep,
     AgentRun,
     KnowledgeDocumentChunk,

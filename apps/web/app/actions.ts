@@ -2,7 +2,12 @@
 
 import { redirect } from 'next/navigation';
 
-import { createIncidentFromAnomaly, startInvestigation } from '@/lib/api';
+import {
+  approveApprovalRequest,
+  createIncidentFromAnomaly,
+  rejectApprovalRequest,
+  startInvestigation,
+} from '@/lib/api';
 
 export async function openIncidentFromAnomaly(formData: FormData) {
   const anomalyId = formData.get('anomaly_id');
@@ -31,4 +36,42 @@ export async function startInvestigationFromIncident(formData: FormData) {
   }
 
   redirect(`/agent/runs/${encodeURIComponent(run.data.id)}`);
+}
+
+export async function approveApprovalFromRun(formData: FormData) {
+  const approvalId = readRequiredFormValue(formData, 'approval_id');
+  const runId = readRequiredFormValue(formData, 'run_id');
+  const result = await approveApprovalRequest(
+    approvalId,
+    'Approved from the investigation approval queue.',
+  );
+
+  redirectToRun(runId, result.ok ? undefined : result.error);
+}
+
+export async function rejectApprovalFromRun(formData: FormData) {
+  const approvalId = readRequiredFormValue(formData, 'approval_id');
+  const runId = readRequiredFormValue(formData, 'run_id');
+  const result = await rejectApprovalRequest(
+    approvalId,
+    'Rejected from the investigation approval queue.',
+  );
+
+  redirectToRun(runId, result.ok ? undefined : result.error);
+}
+
+function readRequiredFormValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Missing ${key}`);
+  }
+  return value;
+}
+
+function redirectToRun(runId: string, error?: string) {
+  const encodedRunId = encodeURIComponent(runId);
+  if (error) {
+    redirect(`/agent/runs/${encodedRunId}?approval_error=${encodeURIComponent(error)}`);
+  }
+  redirect(`/agent/runs/${encodedRunId}`);
 }

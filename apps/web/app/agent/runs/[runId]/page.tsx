@@ -1,6 +1,16 @@
 import Link from 'next/link';
 
-import type { AgentRunDetail, AgentRunStep, ReportEvidence } from '@/lib/api';
+import {
+  approveApprovalFromRun,
+  rejectApprovalFromRun,
+} from '@/app/actions';
+import type {
+  ActionAuditEvent,
+  AgentRunDetail,
+  AgentRunStep,
+  MockAction,
+  ReportEvidence,
+} from '@/lib/api';
 import { getAgentRun } from '@/lib/api';
 import { formatCount, formatDateTime, formatMoney } from '@/lib/format';
 
@@ -8,10 +18,14 @@ type AgentRunPageProps = {
   params: Promise<{
     runId: string;
   }>;
+  searchParams: Promise<{
+    approval_error?: string;
+  }>;
 };
 
-export default async function AgentRunPage({ params }: AgentRunPageProps) {
+export default async function AgentRunPage({ params, searchParams }: AgentRunPageProps) {
   const { runId } = await params;
+  const { approval_error: approvalError } = await searchParams;
   const result = await getAgentRun(runId);
 
   if (!result.ok) {
@@ -34,10 +48,16 @@ export default async function AgentRunPage({ params }: AgentRunPageProps) {
     );
   }
 
-  return <RunReport run={result.data} />;
+  return <RunReport approvalError={approvalError} run={result.data} />;
 }
 
-function RunReport({ run }: { run: AgentRunDetail }) {
+function RunReport({
+  approvalError,
+  run,
+}: {
+  approvalError?: string;
+  run: AgentRunDetail;
+}) {
   const report = run.final_report;
 
   return (
@@ -149,8 +169,130 @@ function RunReport({ run }: { run: AgentRunDetail }) {
         </section>
       ) : null}
 
+      <ApprovalQueuePanel
+        actions={run.mock_actions}
+        approvalError={approvalError}
+        runId={run.id}
+      />
+
       <StepHistory steps={run.steps} />
     </main>
+  );
+}
+
+function ApprovalQueuePanel({
+  actions,
+  approvalError,
+  runId,
+}: {
+  actions: MockAction[];
+  approvalError?: string;
+  runId: string;
+}) {
+  const pendingCount = actions.filter((action) => action.status === 'pending_approval').length;
+
+  return (
+    <section className="panel approval-panel">
+      <div className="panel-header">
+        <h2>Approval queue</h2>
+        <span>
+          {formatCount(pendingCount)} pending / {formatCount(actions.length)} actions
+        </span>
+      </div>
+      {approvalError ? (
+        <div className="panel-message error-detail" role="alert">
+          {approvalError}
+        </div>
+      ) : null}
+      {actions.length > 0 ? (
+        <div className="approval-stack">
+          {actions.map((action) => (
+            <article className="approval-row" key={action.id}>
+              <div className="approval-row-main">
+                <div>
+                  <span className={`risk-pill risk-${action.risk_level}`}>
+                    {action.risk_level} risk
+                  </span>
+                  <h3>{action.title}</h3>
+                  <p>{action.description}</p>
+                </div>
+                <div className="approval-actions">
+                  <span className={`action-status action-${action.status}`}>
+                    {statusLabel(action.status)}
+                  </span>
+                  {action.status === 'pending_approval' && action.approval_request ? (
+                    <div className="approval-buttons">
+                      <form action={approveApprovalFromRun}>
+                        <input name="approval_id" type="hidden" value={action.approval_request.id} />
+                        <input name="run_id" type="hidden" value={runId} />
+                        <button className="action-button" type="submit">
+                          Approve
+                        </button>
+                      </form>
+                      <form action={rejectApprovalFromRun}>
+                        <input name="approval_id" type="hidden" value={action.approval_request.id} />
+                        <input name="run_id" type="hidden" value={runId} />
+                        <button className="action-button secondary-action" type="submit">
+                          Reject
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <dl className="action-meta">
+                <div>
+                  <dt>Type</dt>
+                  <dd>{actionTypeLabel(action.action_type)}</dd>
+                </div>
+                <div>
+                  <dt>Target</dt>
+                  <dd>{action.target}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatDateTime(action.created_at)}</dd>
+                </div>
+                <div>
+                  <dt>Executed</dt>
+                  <dd>{action.executed_at ? formatDateTime(action.executed_at) : 'not executed'}</dd>
+                </div>
+              </dl>
+
+              {action.approval_request ? (
+                <p className="approval-reason">{action.approval_request.reason}</p>
+              ) : null}
+
+              <details>
+                <summary>Audit and payload</summary>
+                <div className="audit-stack">
+                  {action.audit_events.map((event) => (
+                    <AuditEventRow event={event} key={event.id} />
+                  ))}
+                </div>
+                <pre>{formatPayload(action.payload)}</pre>
+              </details>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="panel-message">No mock actions proposed for this run.</div>
+      )}
+    </section>
+  );
+}
+
+function AuditEventRow({ event }: { event: ActionAuditEvent }) {
+  return (
+    <div className="audit-event">
+      <span className={`audit-event-type audit-${event.event_type}`}>{event.event_type}</span>
+      <div>
+        <strong>{event.actor}</strong>
+        <span>{formatDateTime(event.created_at)}</span>
+        {event.notes ? <p>{event.notes}</p> : null}
+      </div>
+    </div>
   );
 }
 
@@ -246,4 +388,12 @@ function citationLabel(item: ReportEvidence) {
 
 function formatPayload(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function actionTypeLabel(actionType: MockAction['action_type']) {
+  return actionType.replaceAll('_', ' ');
+}
+
+function statusLabel(status: MockAction['status']) {
+  return status.replaceAll('_', ' ');
 }

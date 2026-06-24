@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.router import router as agent_router
+from app.approvals.router import approvals_router, mock_actions_router
 from app.core.config import get_settings
 from app.health.router import router as health_router
 from app.incidents.router import router as incidents_router
@@ -26,6 +27,8 @@ def create_app() -> FastAPI:
     app.include_router(incidents_router)
     app.include_router(knowledge_router)
     app.include_router(agent_router)
+    app.include_router(mock_actions_router)
+    app.include_router(approvals_router)
     return app
 
 

@@ -221,6 +221,68 @@ export type InvestigationReport = {
   generated_at: string;
 };
 
+export type ActionType =
+  | 'draft_slack_message'
+  | 'draft_customer_email'
+  | 'create_task'
+  | 'update_account_note';
+
+export type RiskLevel = 'low' | 'high';
+
+export type MockActionStatus = 'pending_approval' | 'executed' | 'rejected';
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export type AuditEventType = 'proposed' | 'approved' | 'rejected' | 'executed';
+
+export type ActionAuditEvent = {
+  id: string;
+  run_id: string;
+  action_id: string;
+  approval_request_id: string | null;
+  event_type: AuditEventType;
+  actor: string;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ApprovalRequestSummary = {
+  id: string;
+  run_id: string;
+  action_id: string;
+  status: ApprovalStatus;
+  risk_level: RiskLevel;
+  reason: string;
+  requested_by: string;
+  decided_by: string | null;
+  decision_notes: string | null;
+  created_at: string;
+  decided_at: string | null;
+};
+
+export type MockAction = {
+  id: string;
+  run_id: string;
+  action_type: ActionType;
+  risk_level: RiskLevel;
+  status: MockActionStatus;
+  title: string;
+  description: string;
+  target: string;
+  payload: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  executed_at: string | null;
+  approval_request: ApprovalRequestSummary | null;
+  audit_events: ActionAuditEvent[];
+};
+
+export type ApprovalRequest = ApprovalRequestSummary & {
+  action: MockAction;
+};
+
 export type AgentRunStep = {
   id: string;
   run_id: string;
@@ -250,6 +312,7 @@ export type AgentRunDetail = {
   created_at: string;
   updated_at: string;
   steps: AgentRunStep[];
+  mock_actions: MockAction[];
 };
 
 export type StartInvestigationResult =
@@ -258,6 +321,10 @@ export type StartInvestigationResult =
 
 export type AgentRunDetailResult =
   | { ok: true; data: AgentRunDetail }
+  | { ok: false; error: string };
+
+export type ApprovalDecisionResult =
+  | { ok: true; data: ApprovalRequest }
   | { ok: false; error: string };
 
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -460,6 +527,57 @@ export async function getAgentRun(runId: string): Promise<AgentRunDetailResult> 
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Agent run endpoint unavailable',
+    };
+  }
+}
+
+export async function approveApprovalRequest(
+  approvalId: string,
+  notes?: string,
+): Promise<ApprovalDecisionResult> {
+  return submitApprovalDecision(approvalId, 'approve', notes);
+}
+
+export async function rejectApprovalRequest(
+  approvalId: string,
+  notes?: string,
+): Promise<ApprovalDecisionResult> {
+  return submitApprovalDecision(approvalId, 'reject', notes);
+}
+
+async function submitApprovalDecision(
+  approvalId: string,
+  decision: 'approve' | 'reject',
+  notes?: string,
+): Promise<ApprovalDecisionResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/approvals/${approvalId}/${decision}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ notes }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Approval ${decision} returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as ApprovalRequest,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : `Approval ${decision} unavailable`,
     };
   }
 }

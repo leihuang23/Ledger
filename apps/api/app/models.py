@@ -262,6 +262,19 @@ class AgentRun(Base):
     steps: Mapped[list[AgentRunStep]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="AgentRunStep.sequence"
     )
+    mock_actions: Mapped[list[MockAction]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="MockAction.created_at"
+    )
+    approval_requests: Mapped[list[ApprovalRequest]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="ApprovalRequest.created_at",
+    )
+    action_audit_events: Mapped[list[ActionAuditEvent]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="ActionAuditEvent.created_at",
+    )
 
 
 class AgentRunStep(Base):
@@ -288,6 +301,99 @@ class AgentRunStep(Base):
     run: Mapped[AgentRun] = relationship(back_populates="steps")
 
 
+class MockAction(Base):
+    __tablename__ = "mock_actions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(48), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    target: Mapped[str] = mapped_column(String(180), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    run: Mapped[AgentRun] = relationship(back_populates="mock_actions")
+    approval_request: Mapped[ApprovalRequest | None] = relationship(
+        back_populates="action", cascade="all, delete-orphan", uselist=False
+    )
+    audit_events: Mapped[list[ActionAuditEvent]] = relationship(
+        back_populates="action",
+        cascade="all, delete-orphan",
+        order_by="ActionAuditEvent.created_at",
+    )
+
+
+class ApprovalRequest(Base):
+    __tablename__ = "approval_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(48), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("mock_actions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(80))
+    decision_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    run: Mapped[AgentRun] = relationship(back_populates="approval_requests")
+    action: Mapped[MockAction] = relationship(back_populates="approval_request")
+    audit_events: Mapped[list[ActionAuditEvent]] = relationship(
+        back_populates="approval_request",
+        cascade="all, delete-orphan",
+        order_by="ActionAuditEvent.created_at",
+    )
+
+
+class ActionAuditEvent(Base):
+    __tablename__ = "action_audit_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(48), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("mock_actions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    approval_request_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("approval_requests.id", ondelete="SET NULL"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String(80), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    run: Mapped[AgentRun] = relationship(back_populates="action_audit_events")
+    action: Mapped[MockAction] = relationship(back_populates="audit_events")
+    approval_request: Mapped[ApprovalRequest | None] = relationship(
+        back_populates="audit_events"
+    )
+
+
 Index("ix_invoices_account_date", Invoice.account_id, Invoice.invoice_date)
 Index("ix_product_events_account_time", ProductEvent.account_id, ProductEvent.event_time)
 Index("ix_support_tickets_account_created", SupportTicket.account_id, SupportTicket.created_at)
@@ -298,3 +404,6 @@ Index(
     unique=True,
 )
 Index("ix_agent_run_steps_run_stage", AgentRunStep.run_id, AgentRunStep.stage)
+Index("ix_mock_actions_run_status", MockAction.run_id, MockAction.status)
+Index("ix_approval_requests_run_status", ApprovalRequest.run_id, ApprovalRequest.status)
+Index("ix_action_audit_events_run_created", ActionAuditEvent.run_id, ActionAuditEvent.created_at)

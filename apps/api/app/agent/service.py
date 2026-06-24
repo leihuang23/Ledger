@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.agent.persistence import utcnow_naive
 from app.agent.schemas import AgentRunDetail, AgentRunStepRead, InvestigationReport
 from app.agent.workflow import run_investigation_workflow
+from app.approvals.service import list_mock_actions_for_run, propose_actions_for_report
 from app.models import AgentRun, AgentRunStep, Incident
 
 
@@ -30,6 +31,7 @@ def start_investigation_run(
             .limit(1)
         )
         if existing_run_id is not None:
+            backfill_report_actions(session, existing_run_id)
             return get_run_detail(session, existing_run_id), False
 
     now = utcnow_naive()
@@ -77,7 +79,7 @@ def start_investigation_run(
     finished_run.cost_estimate_usd = 0.0
     finished_run.completed_at = completed_at
     finished_run.updated_at = completed_at
-    session.commit()
+    propose_actions_for_report(session, run_id=finished_run.id, report=report)
     return get_run_detail(session, finished_run.id), True
 
 
@@ -124,7 +126,17 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
             )
             for step in steps
         ],
+        mock_actions=list_mock_actions_for_run(session, run.id),
     )
+
+
+def backfill_report_actions(session: Session, run_id: str) -> None:
+    run = session.get(AgentRun, run_id)
+    if run is None or run.status != "succeeded" or run.final_report is None:
+        return
+
+    report = InvestigationReport.model_validate(run.final_report)
+    propose_actions_for_report(session, run_id=run.id, report=report)
 
 
 def estimate_token_count(payload: dict[str, object]) -> int:

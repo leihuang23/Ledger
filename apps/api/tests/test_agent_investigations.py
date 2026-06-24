@@ -9,10 +9,15 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.models  # noqa: F401
+from app.agent.schemas import (
+    InvestigationReport,
+    ReportAffectedAccount,
+    ReportEvidence,
+)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Incident
+from app.models import AgentRun, Incident
 from app.seed import reseed_database
 
 
@@ -79,6 +84,22 @@ def test_investigation_run_produces_structured_evidence_backed_report(
     assert len(report["affected_accounts"]) == 6
     assert report["confidence"] == "high"
     assert report["next_actions"]
+    assert {action["action_type"] for action in payload["mock_actions"]} == {
+        "draft_slack_message",
+        "draft_customer_email",
+        "create_task",
+        "update_account_note",
+    }
+    low_risk_actions = [
+        action for action in payload["mock_actions"] if action["risk_level"] == "low"
+    ]
+    high_risk_actions = [
+        action for action in payload["mock_actions"] if action["risk_level"] == "high"
+    ]
+    assert {action["status"] for action in low_risk_actions} == {"executed"}
+    assert {action["status"] for action in high_risk_actions} == {"pending_approval"}
+    assert all(action["approval_request"] is None for action in low_risk_actions)
+    assert all(action["approval_request"]["status"] == "pending" for action in high_risk_actions)
 
     evidence_kinds = {item["kind"] for item in report["cited_evidence"]}
     assert "sql" in evidence_kinds
@@ -147,6 +168,58 @@ def test_investigation_start_reuses_existing_successful_run_by_default(
     assert first_response.status_code == 201
     assert second_response.status_code == 200
     assert second_response.json()["id"] == first_response.json()["id"]
+
+
+def test_investigation_start_backfills_actions_for_existing_successful_run(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = datetime(2026, 6, 9, 12, 30, 0)
+        report = sample_report()
+        run = AgentRun(
+            id="run_success_before_actions",
+            incident_id=incident_id,
+            status="succeeded",
+            trace_id="local-test-trace",
+            input_payload={"incident_id": incident_id},
+            final_report=report.model_dump(mode="json"),
+            token_estimate=1,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=now,
+            completed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(run)
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "run_success_before_actions"
+    assert {action["action_type"] for action in payload["mock_actions"]} == {
+        "draft_slack_message",
+        "draft_customer_email",
+        "create_task",
+        "update_account_note",
+    }
 
 
 def test_investigation_with_no_affected_accounts_finishes_with_uncertainty(
@@ -275,3 +348,34 @@ def test_failed_tool_call_is_persisted_and_surfaced(
     persisted_payload = persisted_response.json()
     assert persisted_payload["id"] == run_id
     assert persisted_payload["steps"][-1]["status"] == "failed"
+
+
+def sample_report() -> InvestigationReport:
+    return InvestigationReport(
+        root_cause="Billing retry webhook regression suppressed second charge attempts.",
+        summary="Incident summary: retry webhook regression.",
+        affected_accounts=[
+            ReportAffectedAccount(
+                account_id="acct_001",
+                account_name="Brightline 01",
+                segment="growth",
+                health_score=61,
+                failed_invoice_cents=254000,
+                failed_invoice_ids=["inv_001_10"],
+                ticket_ids=["tkt_0001"],
+            )
+        ],
+        cited_evidence=[
+            ReportEvidence(
+                kind="sql",
+                title="Current window evidence",
+                summary="Structured metric evidence.",
+                reference_id="sql-current-window",
+                source_query="SELECT 1",
+                citation={"rows": [{"window": "current"}]},
+            )
+        ],
+        confidence="high",
+        next_actions=["Send an approval-gated status update draft to affected admins."],
+        generated_at=datetime(2026, 6, 9, 12, 35, 0),
+    )

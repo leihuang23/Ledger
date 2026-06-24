@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.approvals.schemas import MockActionRead
+
 
 class AgentInvestigationCreate(BaseModel):
     incident_id: str = Field(min_length=1, max_length=64)
@@ -69,3 +71,4 @@ class AgentRunDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     steps: list[AgentRunStepRead]
+    mock_actions: list[MockActionRead] = Field(default_factory=list)
