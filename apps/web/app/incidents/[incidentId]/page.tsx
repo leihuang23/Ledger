@@ -11,13 +11,13 @@ import {
 } from '@/lib/format';
 
 type IncidentPageProps = {
-  params: Promise<{
+  params: {
     incidentId: string;
-  }>;
+  };
 };
 
 export default async function IncidentPage({ params }: IncidentPageProps) {
-  const { incidentId } = await params;
+  const { incidentId } = params;
   const result = await getIncident(incidentId);
 
   if (!result.ok) {
