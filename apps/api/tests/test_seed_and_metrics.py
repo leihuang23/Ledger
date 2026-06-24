@@ -617,6 +617,10 @@ def test_seed_cli_refuses_unsafe_database_targets() -> None:
         "postgresql+psycopg://ops_agent:ops_agent@localhost:5432/ops_agent",
         "local",
     )
+    validate_seed_target(
+        "postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent",
+        "test",
+    )
 
     with pytest.raises(SystemExit, match="Refusing to reseed outside local"):
         validate_seed_target(

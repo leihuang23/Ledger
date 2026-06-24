@@ -860,7 +860,8 @@ def validate_seed_target(database_url: str, app_env: str) -> None:
     parsed_url = urlparse(database_url.replace("+psycopg", "", 1))
     safe_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
     database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1]
-    if parsed_url.hostname in safe_hosts and database_name in {"ops_agent", "ops_agent_test"}:
+    safe_database_names = {"ops_agent", "ops_agent_test", "test_ops_agent"}
+    if parsed_url.hostname in safe_hosts and database_name in safe_database_names:
         return
 
     raise SystemExit(
