@@ -13,12 +13,13 @@ import {
 } from '@/lib/format';
 
 type HomeProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     incident_error?: string;
-  };
+  }>;
 };
 
 export default async function Home({ searchParams }: HomeProps) {
+  const resolvedSearchParams = await searchParams;
   const [health, dashboardResult, anomaliesResult] = await Promise.all([
     getHealth(),
     getDashboardMetrics(),
@@ -26,7 +27,9 @@ export default async function Home({ searchParams }: HomeProps) {
   ]);
   const apiOnline = health.status === 'ok';
   const incidentError =
-    typeof searchParams?.incident_error === 'string' ? searchParams.incident_error : null;
+    typeof resolvedSearchParams?.incident_error === 'string'
+      ? resolvedSearchParams.incident_error
+      : null;
 
   return (
     <main className="dashboard-shell">
@@ -35,9 +38,14 @@ export default async function Home({ searchParams }: HomeProps) {
           <p className="eyebrow">Ops Agent</p>
           <h1>SaaS revenue and support dashboard</h1>
         </div>
-        <div className={`status-pill ${apiOnline ? 'status-ok' : 'status-error'}`}>
-          <span aria-hidden="true" />
-          {apiOnline ? 'API online' : 'API unavailable'}
+        <div className="header-actions">
+          <Link className="action-button secondary-action" href="/knowledge">
+            Knowledge
+          </Link>
+          <div className={`status-pill ${apiOnline ? 'status-ok' : 'status-error'}`}>
+            <span aria-hidden="true" />
+            {apiOnline ? 'API online' : 'API unavailable'}
+          </div>
         </div>
       </header>
 
