@@ -445,7 +445,10 @@ export async function getAgentRun(runId: string): Promise<AgentRunDetailResult> 
     if (!response.ok) {
       return {
         ok: false,
-        error: `Agent run endpoint returned HTTP ${response.status}`,
+        error: await readErrorMessage(
+          response,
+          `Agent run endpoint returned HTTP ${response.status}`,
+        ),
       };
     }
 
