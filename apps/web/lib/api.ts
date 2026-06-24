@@ -170,9 +170,9 @@ export type KnowledgeCitation = {
   document_type: string;
   heading_path: string;
   source_path: string;
-  source_uri?: string | null;
+  source_uri: string | null;
   chunk_index: number;
-  tags?: string[];
+  tags: string[];
 };
 
 export type KnowledgeSearchItem = {
