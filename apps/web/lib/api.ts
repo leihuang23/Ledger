@@ -192,6 +192,74 @@ export type KnowledgeSearchResult =
   | { ok: true; data: KnowledgeSearchResponse }
   | { ok: false; error: string };
 
+export type ReportAffectedAccount = {
+  account_id: string;
+  account_name: string;
+  segment: string;
+  health_score: number;
+  failed_invoice_cents: number;
+  failed_invoice_ids: string[];
+  ticket_ids: string[];
+};
+
+export type ReportEvidence = {
+  kind: 'sql' | 'document' | 'ticket';
+  title: string;
+  summary: string;
+  reference_id: string;
+  source_query: string | null;
+  citation: Record<string, unknown>;
+};
+
+export type InvestigationReport = {
+  root_cause: string;
+  summary: string;
+  affected_accounts: ReportAffectedAccount[];
+  cited_evidence: ReportEvidence[];
+  confidence: 'low' | 'medium' | 'high';
+  next_actions: string[];
+  generated_at: string;
+};
+
+export type AgentRunStep = {
+  id: string;
+  run_id: string;
+  sequence: number;
+  stage: string;
+  tool_name: string | null;
+  status: 'running' | 'succeeded' | 'failed';
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown> | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type AgentRunDetail = {
+  id: string;
+  incident_id: string;
+  status: 'running' | 'succeeded' | 'failed';
+  trace_id: string | null;
+  token_estimate: number;
+  cost_estimate_usd: number;
+  input_payload: Record<string, unknown>;
+  final_report: InvestigationReport | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  steps: AgentRunStep[];
+};
+
+export type StartInvestigationResult =
+  | { ok: true; data: AgentRunDetail }
+  | { ok: false; error: string };
+
+export type AgentRunDetailResult =
+  | { ok: true; data: AgentRunDetail }
+  | { ok: false; error: string };
+
 async function readErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -329,6 +397,66 @@ export async function getIncident(incidentId: string): Promise<IncidentDetailRes
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Incident endpoint unavailable',
+    };
+  }
+}
+
+export async function startInvestigation(
+  incidentId: string,
+): Promise<StartInvestigationResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/agent/investigations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ incident_id: incidentId }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Investigation start returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentRunDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Investigation start unavailable',
+    };
+  }
+}
+
+export async function getAgentRun(runId: string): Promise<AgentRunDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/agent/runs/${runId}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Agent run endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentRunDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Agent run endpoint unavailable',
     };
   }
 }

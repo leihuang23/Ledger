@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { startInvestigationFromIncident } from '@/app/actions';
 import { getIncident } from '@/lib/api';
 import {
   formatCount,
@@ -14,11 +15,19 @@ type IncidentPageProps = {
   params: Promise<{
     incidentId: string;
   }>;
+  searchParams?: Promise<{
+    investigation_error?: string;
+  }>;
 };
 
-export default async function IncidentPage({ params }: IncidentPageProps) {
+export default async function IncidentPage({ params, searchParams }: IncidentPageProps) {
   const { incidentId } = await params;
+  const resolvedSearchParams = await searchParams;
   const result = await getIncident(incidentId);
+  const investigationError =
+    typeof resolvedSearchParams?.investigation_error === 'string'
+      ? resolvedSearchParams.investigation_error
+      : null;
 
   if (!result.ok) {
     return (
@@ -56,6 +65,12 @@ export default async function IncidentPage({ params }: IncidentPageProps) {
             {incident.severity}
           </span>
           <span className="status-pill incident-status">{incident.status}</span>
+          <form action={startInvestigationFromIncident}>
+            <input name="incident_id" type="hidden" value={incident.id} />
+            <button className="action-button" type="submit">
+              Run investigation
+            </button>
+          </form>
           <Link className="action-button secondary-action" href="/knowledge">
             Knowledge
           </Link>
@@ -64,6 +79,12 @@ export default async function IncidentPage({ params }: IncidentPageProps) {
           </Link>
         </div>
       </header>
+
+      {investigationError ? (
+        <section className="panel anomaly-panel" aria-live="polite">
+          <div className="panel-message error-detail">{investigationError}</div>
+        </section>
+      ) : null}
 
       <section className="snapshot-bar">
         <div>
