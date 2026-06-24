@@ -25,7 +25,7 @@ def start_investigation_run(
             select(AgentRun.id)
             .where(
                 AgentRun.incident_id == incident_id,
-                AgentRun.status.in_(("running", "succeeded")),
+                AgentRun.status == "succeeded",
             )
             .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
             .limit(1)
@@ -33,6 +33,8 @@ def start_investigation_run(
         if existing_run_id is not None:
             backfill_report_actions(session, existing_run_id)
             return get_run_detail(session, existing_run_id), False
+
+    _abandon_orphaned_runs(session, incident_id)
 
     now = utcnow_naive()
     run = AgentRun(
@@ -79,7 +81,13 @@ def start_investigation_run(
     finished_run.cost_estimate_usd = 0.0
     finished_run.completed_at = completed_at
     finished_run.updated_at = completed_at
-    propose_actions_for_report(session, run_id=finished_run.id, report=report)
+    session.commit()
+
+    try:
+        propose_actions_for_report(session, run_id=finished_run.id, report=report)
+    except Exception:
+        session.rollback()
+
     return get_run_detail(session, finished_run.id), True
 
 
@@ -128,6 +136,25 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
         ],
         mock_actions=list_mock_actions_for_run(session, run.id),
     )
+
+
+def _abandon_orphaned_runs(session: Session, incident_id: str) -> None:
+    now = utcnow_naive()
+    orphaned_runs = session.scalars(
+        select(AgentRun).where(
+            AgentRun.incident_id == incident_id,
+            AgentRun.status == "running",
+        )
+    ).all()
+    if not orphaned_runs:
+        return
+
+    for run in orphaned_runs:
+        run.status = "failed"
+        run.error = run.error or "Investigation interrupted before completion."
+        run.completed_at = run.completed_at or now
+        run.updated_at = now
+    session.commit()
 
 
 def backfill_report_actions(session: Session, run_id: str) -> None:

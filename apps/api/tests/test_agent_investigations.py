@@ -138,6 +138,98 @@ def test_investigation_run_produces_structured_evidence_backed_report(
     assert all(step["status"] == "succeeded" for step in tool_steps)
 
 
+def test_investigation_start_restarts_after_orphaned_running_run(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = datetime(2026, 6, 9, 12, 30, 0)
+        orphaned_run = AgentRun(
+            id="run_orphaned_running",
+            incident_id=incident_id,
+            status="running",
+            trace_id="local-test-trace",
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=now,
+            completed_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(orphaned_run)
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id},
+        )
+        orphaned_response = client.get("/agent/runs/run_orphaned_running")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["id"] != "run_orphaned_running"
+    assert payload["status"] == "succeeded"
+    assert payload["final_report"] is not None
+
+    assert orphaned_response.status_code == 200
+    orphaned_payload = orphaned_response.json()
+    assert orphaned_payload["status"] == "failed"
+    assert orphaned_payload["error"] == "Investigation interrupted before completion."
+
+
+def test_investigation_succeeds_when_action_proposal_fails(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+
+    assert incident_id is not None
+
+    def fail_action_proposal(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("mock action proposal unavailable")
+
+    monkeypatch.setattr(
+        "app.agent.service.propose_actions_for_report",
+        fail_action_proposal,
+    )
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "succeeded"
+    assert payload["final_report"] is not None
+    assert payload["mock_actions"] == []
+
+
 def test_investigation_start_reuses_existing_successful_run_by_default(
     session_factory: Callable[[], Session],
 ) -> None:
