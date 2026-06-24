@@ -24,6 +24,8 @@ from app.incidents.constants import (
 from app.knowledge.ingestion import ingest_builtin_knowledge_documents
 from app.models import (
     Account,
+    AgentRun,
+    AgentRunStep,
     Incident,
     Invoice,
     KnowledgeDocument,
@@ -118,6 +120,8 @@ SCENARIO_ACCOUNT_NUMBERS: Final[dict[str, set[int]]] = {
 }
 
 MODEL_ORDER: Final[tuple[type, ...]] = (
+    AgentRunStep,
+    AgentRun,
     KnowledgeDocumentChunk,
     KnowledgeDocument,
     Incident,
@@ -770,6 +774,8 @@ def seed_counts(session: Session) -> dict[str, int]:
         "product_events": ProductEvent,
         "support_tickets": SupportTicket,
         "incidents": Incident,
+        "agent_runs": AgentRun,
+        "agent_run_steps": AgentRunStep,
         "knowledge_documents": KnowledgeDocument,
         "knowledge_document_chunks": KnowledgeDocumentChunk,
     }
