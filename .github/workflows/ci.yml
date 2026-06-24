@@ -54,8 +54,7 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: postgresql://postgres:test@postgres:5432/test_ops_agent
-        run: alembic upgrade head
+          DATABASE_URL: postgresql+psycopg://postgres:test@postgres:5432/test_ops_agent
 
       - name: Run API tests
         env:
