@@ -4,6 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Ops Agent',
   description: 'SaaS revenue and support operations agent workspace',
+  icons: [{ rel: 'icon', url: '/favicon.svg', type: 'image/svg+xml' }],
 };
 
 export default function RootLayout({
@@ -17,4 +18,3 @@ export default function RootLayout({
     </html>
   );
 }
-

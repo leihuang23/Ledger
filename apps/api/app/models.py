@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -149,6 +149,28 @@ class SupportTicket(Base):
 
     account: Mapped[Account] = relationship(back_populates="support_tickets")
     user: Mapped[User | None] = relationship(back_populates="support_tickets")
+
+
+class Incident(Base):
+    __tablename__ = "incidents"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    anomaly_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    source_scenario: Mapped[str | None] = mapped_column(String(80), index=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    current_value_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_value_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    delta_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    delta_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    affected_account_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 Index("ix_invoices_account_date", Invoice.account_id, Invoice.invoice_date)

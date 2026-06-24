@@ -14,7 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import Account, Invoice, ProductEvent, Subscription, SupportTicket, User
+from app.incidents.constants import (
+    PAID_INVOICE_MRR_METRIC,
+    REVENUE_MRR_DROP_ANOMALY_TYPE,
+    anomaly_id_for_window,
+    incident_id_for_anomaly,
+    revenue_week_windows,
+)
+from app.models import Account, Incident, Invoice, ProductEvent, Subscription, SupportTicket, User
 
 DATASET_ANCHOR: Final[datetime] = datetime(2026, 6, 9, 12, 0, 0)
 ACCOUNT_COUNT: Final[int] = 60
@@ -100,6 +107,7 @@ SCENARIO_ACCOUNT_NUMBERS: Final[dict[str, set[int]]] = {
 }
 
 MODEL_ORDER: Final[tuple[type, ...]] = (
+    Incident,
     SupportTicket,
     ProductEvent,
     Invoice,
@@ -127,6 +135,14 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     if existing_account is not None:
         return None
 
+    settings = get_settings()
+    if not settings.allow_unsafe_bootstrap_seed:
+        try:
+            validate_seed_target(settings.database_url, settings.app_env)
+        except SystemExit as exc:
+            raise SystemExit(
+                f"{exc} Set ALLOW_UNSAFE_BOOTSTRAP_SEED=true only for an intentional demo reset."
+            ) from exc
     try:
         return insert_seed_data(session)
     except IntegrityError:
@@ -153,6 +169,8 @@ def insert_seed_data(session: Session) -> SeedResult:
     session.add_all(invoices)
     session.add_all(product_events)
     session.add_all(support_tickets)
+    session.flush()
+    session.add_all(build_incidents(session))
     session.flush()
 
     counts = seed_counts(session)
@@ -299,12 +317,17 @@ def build_invoices(subscriptions: list[Subscription]) -> list[Invoice]:
                 "checkout_retry_regression",
                 "payment_method_expiration",
             }:
+                if scenario == "checkout_retry_regression":
+                    invoice_date = date(2026, 6, 5)
                 status = "failed"
                 failure_reason = (
                     "Retry webhook regression suppressed second charge attempt"
                     if scenario == "checkout_retry_regression"
                     else "Expired cards were not refreshed before renewal"
                 )
+                source_scenario = scenario
+            elif period_start == date(2026, 5, 1) and scenario == "checkout_retry_regression":
+                invoice_date = date(2026, 5, 29)
                 source_scenario = scenario
             elif period_start >= date(2026, 5, 1) and scenario == "enterprise_churn_wave":
                 status = "void" if period_start == date(2026, 6, 1) else "paid"
@@ -488,6 +511,241 @@ def build_support_tickets() -> list[SupportTicket]:
     return tickets
 
 
+def build_incidents(session: Session) -> list[Incident]:
+    windows = revenue_week_windows(DATASET_ANCHOR)
+    previous_mrr = invoice_sum(
+        session, "paid", windows.previous_start, windows.current_start
+    )
+    current_mrr = invoice_sum(
+        session, "paid", windows.current_start, windows.current_end_exclusive
+    )
+    failed_rows = session.execute(
+        select(
+            Invoice.id,
+            Invoice.account_id,
+            Account.name,
+            Account.segment,
+            Account.health_score,
+            Account.source_scenario,
+            Invoice.amount_cents,
+        )
+        .join(Account, Account.id == Invoice.account_id)
+        .join(Subscription, Subscription.id == Invoice.subscription_id)
+        .where(
+            Invoice.status == "failed",
+            Invoice.invoice_date >= windows.current_start,
+            Invoice.invoice_date < windows.current_end_exclusive,
+            Subscription.status == "active",
+        )
+        .order_by(Invoice.amount_cents.desc(), Account.name)
+    ).all()
+    if previous_mrr <= 0 or current_mrr >= previous_mrr or not failed_rows:
+        return []
+
+    accounts: dict[str, dict[str, object]] = {}
+    for row in failed_rows:
+        account = accounts.setdefault(
+            row.account_id,
+            {
+                "account_id": row.account_id,
+                "account_name": row.name,
+                "segment": row.segment,
+                "health_score": row.health_score,
+                "failed_invoice_cents": 0,
+                "failed_invoice_count": 0,
+                "failed_invoice_ids": [],
+                "source_scenario": row.source_scenario,
+            },
+        )
+        account["failed_invoice_cents"] = int(account["failed_invoice_cents"]) + row.amount_cents
+        account["failed_invoice_count"] = int(account["failed_invoice_count"]) + 1
+        account["failed_invoice_ids"].append(row.id)
+
+    affected_accounts = list(accounts.values())
+    failed_invoice_ids = [
+        invoice_id
+        for account in affected_accounts
+        for invoice_id in account["failed_invoice_ids"]
+    ]
+    failed_invoice_cents = sum(
+        int(account["failed_invoice_cents"]) for account in affected_accounts
+    )
+    delta_cents = current_mrr - previous_mrr
+    delta_percent = round((delta_cents / previous_mrr) * 100, 2)
+    anomaly_id = anomaly_id_for_window(windows.current_start)
+    evidence = {
+        "anomaly_id": anomaly_id,
+        "metric_evidence": {
+            "metric_name": PAID_INVOICE_MRR_METRIC,
+            "current_window_start": windows.current_start.isoformat(),
+            "current_window_end": windows.current_end.isoformat(),
+            "previous_window_start": windows.previous_start.isoformat(),
+            "previous_window_end": windows.previous_end.isoformat(),
+            "current_value_cents": current_mrr,
+            "previous_value_cents": previous_mrr,
+            "delta_cents": delta_cents,
+            "delta_percent": delta_percent,
+            "failed_invoice_cents": failed_invoice_cents,
+            "failed_invoice_count": len(failed_invoice_ids),
+            "invoice_ids": failed_invoice_ids,
+        },
+        "affected_accounts": affected_accounts,
+        "support_signals": support_signal_dicts_for_accounts(session, list(accounts)),
+        "product_signals": product_signal_dicts_for_accounts(session, list(accounts)),
+        "support_ticket_ids": ticket_ids_for_accounts(session, list(accounts)),
+        "product_event_names": product_event_names_for_accounts(session, list(accounts)),
+        "source_queries": [
+            "paid invoices joined to subscriptions in current and previous 7-day windows",
+            "failed current-window renewal invoices grouped by account",
+            "support tickets and product events for affected accounts in the last 30 days",
+        ],
+    }
+
+    return [
+        Incident(
+            id=incident_id_for_anomaly(anomaly_id),
+            title="Week-over-week paid MRR dropped after failed renewals",
+            status="open",
+            severity="high",
+            anomaly_type=REVENUE_MRR_DROP_ANOMALY_TYPE,
+            metric_name=PAID_INVOICE_MRR_METRIC,
+            summary=(
+                "Paid invoice MRR fell week over week while renewal invoices failed "
+                "for affected accounts."
+            ),
+            source_scenario="checkout_retry_regression",
+            detected_at=DATASET_ANCHOR,
+            current_value_cents=current_mrr,
+            previous_value_cents=previous_mrr,
+            delta_cents=delta_cents,
+            delta_percent=delta_percent,
+            affected_account_ids=list(accounts),
+            evidence=evidence,
+            created_at=DATASET_ANCHOR,
+            updated_at=DATASET_ANCHOR,
+        )
+    ]
+
+
+def invoice_sum(session: Session, status: str, start_date: date, end_date: date) -> int:
+    return int(
+        session.scalar(
+            select(func.coalesce(func.sum(Invoice.amount_cents), 0))
+            .join(Subscription, Subscription.id == Invoice.subscription_id)
+            .where(
+                Invoice.status == status,
+                Invoice.invoice_date >= start_date,
+                Invoice.invoice_date < end_date,
+                Subscription.status.in_(("active", "canceled")),
+            )
+        )
+        or 0
+    )
+
+
+def ticket_ids_for_accounts(session: Session, account_ids: list[str]) -> list[str]:
+    return [
+        ticket_id
+        for (ticket_id,) in session.execute(
+            select(SupportTicket.id)
+            .where(
+                SupportTicket.account_id.in_(account_ids),
+                SupportTicket.created_at >= DATASET_ANCHOR - timedelta(days=30),
+            )
+            .order_by(SupportTicket.created_at.desc(), SupportTicket.id)
+            .limit(12)
+        )
+    ]
+
+
+def support_signal_dicts_for_accounts(
+    session: Session, account_ids: list[str]
+) -> list[dict[str, object]]:
+    return [
+        {
+            "ticket_id": row.ticket_id,
+            "account_id": row.account_id,
+            "account_name": row.account_name,
+            "created_at": row.created_at.isoformat(),
+            "status": row.status,
+            "priority": row.priority,
+            "category": row.category,
+            "subject": row.subject,
+            "sentiment": row.sentiment,
+            "source_scenario": row.source_scenario,
+        }
+        for row in session.execute(
+            select(
+                SupportTicket.id.label("ticket_id"),
+                SupportTicket.account_id.label("account_id"),
+                Account.name.label("account_name"),
+                SupportTicket.created_at.label("created_at"),
+                SupportTicket.status.label("status"),
+                SupportTicket.priority.label("priority"),
+                SupportTicket.category.label("category"),
+                SupportTicket.subject.label("subject"),
+                SupportTicket.sentiment.label("sentiment"),
+                SupportTicket.source_scenario.label("source_scenario"),
+            )
+            .join(Account, Account.id == SupportTicket.account_id)
+            .where(
+                SupportTicket.account_id.in_(account_ids),
+                SupportTicket.created_at >= DATASET_ANCHOR - timedelta(days=30),
+            )
+            .order_by(SupportTicket.created_at.desc(), SupportTicket.id)
+            .limit(12)
+        )
+    ]
+
+
+def product_signal_dicts_for_accounts(
+    session: Session, account_ids: list[str]
+) -> list[dict[str, object]]:
+    return [
+        {
+            "event_name": row.event_name,
+            "event_count": int(row.event_count or 0),
+            "affected_accounts": int(row.affected_accounts or 0),
+            "latest_event_at": row.latest_event_at.isoformat(),
+            "source_scenario": row.source_scenario,
+        }
+        for row in session.execute(
+            select(
+                ProductEvent.event_name.label("event_name"),
+                ProductEvent.source_scenario.label("source_scenario"),
+                func.count(ProductEvent.id).label("event_count"),
+                func.count(func.distinct(ProductEvent.account_id)).label(
+                    "affected_accounts"
+                ),
+                func.max(ProductEvent.event_time).label("latest_event_at"),
+            )
+            .where(
+                ProductEvent.account_id.in_(account_ids),
+                ProductEvent.event_time >= DATASET_ANCHOR - timedelta(days=30),
+            )
+            .group_by(ProductEvent.event_name, ProductEvent.source_scenario)
+            .order_by(func.count(ProductEvent.id).desc(), ProductEvent.event_name)
+            .limit(8)
+        )
+    ]
+
+
+def product_event_names_for_accounts(session: Session, account_ids: list[str]) -> list[str]:
+    return [
+        event_name
+        for (event_name,) in session.execute(
+            select(ProductEvent.event_name)
+            .where(
+                ProductEvent.account_id.in_(account_ids),
+                ProductEvent.event_time >= DATASET_ANCHOR - timedelta(days=30),
+            )
+            .group_by(ProductEvent.event_name)
+            .order_by(func.count(ProductEvent.id).desc(), ProductEvent.event_name)
+            .limit(8)
+        )
+    ]
+
+
 def seed_counts(session: Session) -> dict[str, int]:
     models = {
         "accounts": Account,
@@ -496,6 +754,7 @@ def seed_counts(session: Session) -> dict[str, int]:
         "invoices": Invoice,
         "product_events": ProductEvent,
         "support_tickets": SupportTicket,
+        "incidents": Incident,
     }
     return {
         table_name: session.scalar(select(func.count()).select_from(model)) or 0
@@ -564,7 +823,18 @@ def next_month(day: date) -> date:
     return date(day.year, day.month + 1, 1)
 
 
-def validate_seed_target(database_url: str, _app_env: str) -> None:
+DEMO_ENVIRONMENTS: Final[frozenset[str]] = frozenset(
+    {"local", "test", "development", "demo"}
+)
+
+
+def validate_seed_target(database_url: str, app_env: str) -> None:
+    if app_env not in DEMO_ENVIRONMENTS:
+        raise SystemExit(
+            "Refusing to reseed outside local, test, development, or demo environments. "
+            "Pass --allow-destructive only for an intentional demo reset."
+        )
+
     parsed_url = urlparse(database_url.replace("+psycopg", "", 1))
     safe_hosts = {"", "localhost", "127.0.0.1", "::1", "postgres"}
     database_name = parsed_url.path.rsplit("/", maxsplit=1)[-1]

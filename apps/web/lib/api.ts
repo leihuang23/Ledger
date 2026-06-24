@@ -66,9 +66,113 @@ export type DashboardMetrics = {
   active_users: ActiveUserMetrics;
 };
 
+export type MetricEvidence = {
+  metric_name: string;
+  current_window_start: string;
+  current_window_end: string;
+  previous_window_start: string;
+  previous_window_end: string;
+  current_value_cents: number;
+  previous_value_cents: number;
+  delta_cents: number;
+  delta_percent: number;
+  failed_invoice_cents: number;
+  failed_invoice_count: number;
+  invoice_ids: string[];
+};
+
+export type AffectedAccount = {
+  account_id: string;
+  account_name: string;
+  segment: string;
+  health_score: number;
+  failed_invoice_cents: number;
+  failed_invoice_count: number;
+  failed_invoice_ids: string[];
+  source_scenario: string | null;
+};
+
+export type SupportSignal = {
+  ticket_id: string;
+  account_id: string;
+  account_name: string;
+  created_at: string;
+  status: string;
+  priority: string;
+  category: string;
+  subject: string;
+  sentiment: string;
+  source_scenario: string | null;
+};
+
+export type ProductSignal = {
+  event_name: string;
+  event_count: number;
+  affected_accounts: number;
+  latest_event_at: string;
+  source_scenario: string | null;
+};
+
+export type RevenueAnomaly = {
+  id: string;
+  title: string;
+  anomaly_type: string;
+  severity: string;
+  detected_at: string;
+  summary: string;
+  metric_evidence: MetricEvidence;
+  affected_accounts: AffectedAccount[];
+  support_signals: SupportSignal[];
+  product_signals: ProductSignal[];
+  incident_id: string | null;
+};
+
+export type IncidentDetail = {
+  id: string;
+  title: string;
+  status: string;
+  severity: string;
+  anomaly_type: string;
+  detected_at: string;
+  summary: string;
+  source_scenario: string | null;
+  metric_evidence: MetricEvidence;
+  affected_accounts: AffectedAccount[];
+  support_signals: SupportSignal[];
+  product_signals: ProductSignal[];
+  evidence: {
+    anomaly_id?: string;
+    source_queries?: string[];
+    [key: string]: unknown;
+  };
+};
+
 export type DashboardMetricsResult =
   | { ok: true; data: DashboardMetrics }
   | { ok: false; error: string };
+
+export type RevenueAnomaliesResult =
+  | { ok: true; data: RevenueAnomaly[] }
+  | { ok: false; error: string };
+
+export type IncidentDetailResult =
+  | { ok: true; data: IncidentDetail }
+  | { ok: false; error: string };
+
+export type CreateIncidentFromAnomalyResult =
+  | { ok: true; data: IncidentDetail }
+  | { ok: false; error: string };
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === 'string' && body.detail.length > 0) {
+      return body.detail;
+    }
+  } catch {}
+
+  return fallback;
+}
 
 export async function getHealth(): Promise<HealthResponse> {
   try {
@@ -111,6 +215,91 @@ export async function getDashboardMetrics(): Promise<DashboardMetricsResult> {
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Metrics endpoint unavailable',
+    };
+  }
+}
+
+export async function getRevenueAnomalies(): Promise<RevenueAnomaliesResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/metrics/anomalies`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Anomalies endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as RevenueAnomaly[],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Anomalies endpoint unavailable',
+    };
+  }
+}
+
+export async function createIncidentFromAnomaly(
+  anomalyId: string,
+): Promise<CreateIncidentFromAnomalyResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/incidents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ anomaly_id: anomalyId }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Incident creation returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as IncidentDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Incident creation unavailable',
+    };
+  }
+}
+
+export async function getIncident(incidentId: string): Promise<IncidentDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/incidents/${incidentId}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Incident endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as IncidentDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Incident endpoint unavailable',
     };
   }
 }

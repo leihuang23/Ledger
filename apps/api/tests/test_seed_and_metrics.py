@@ -65,6 +65,64 @@ def test_ensure_seeded_if_empty_seeds_blank_database(
         assert result.counts["product_events"] == 6000
 
 
+def test_ensure_seeded_if_empty_refuses_production_environment(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@postgres:5432/ops_agent",
+    )
+    monkeypatch.setenv("APP_ENV", "production")
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            with pytest.raises(SystemExit, match="Refusing to reseed"):
+                ensure_seeded_if_empty(session)
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("APP_ENV", raising=False)
+        get_settings.cache_clear()
+
+
+def test_ensure_seeded_if_empty_refuses_unsafe_remote_database(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            with pytest.raises(SystemExit, match="Refusing to reseed"):
+                ensure_seeded_if_empty(session)
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        get_settings.cache_clear()
+
+
+def test_ensure_seeded_if_empty_allows_remote_database_when_explicitly_overridden(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://ops_agent:ops_agent@prod.example.com:5432/ops_agent",
+    )
+    monkeypatch.setenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", "true")
+    get_settings.cache_clear()
+    try:
+        with session_factory() as session:
+            result = ensure_seeded_if_empty(session)
+            assert result is not None
+    finally:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("ALLOW_UNSAFE_BOOTSTRAP_SEED", raising=False)
+        get_settings.cache_clear()
+
+
 def test_ensure_seeded_if_empty_handles_concurrent_bootstrap(
     session_factory: Callable[[], Session],
 ) -> None:
@@ -97,6 +155,7 @@ def test_seed_command_data_is_deterministic(
             "invoices": 600,
             "product_events": 6000,
             "support_tickets": 240,
+            "incidents": 1,
         }
         assert second_result.counts == first_result.counts
         assert second_result.fingerprint == first_result.fingerprint
@@ -264,6 +323,167 @@ def test_seeded_scenarios_include_evidence_for_future_investigations(
         assert churned_scenarios == {"enterprise_churn_wave"}
 
 
+def test_each_seeded_scenario_has_concrete_expected_evidence(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+
+        for scenario in SCENARIOS:
+            account_ids = [
+                account_id
+                for (account_id,) in session.execute(
+                    select(Account.id).where(Account.source_scenario == scenario)
+                )
+            ]
+            assert account_ids, scenario
+
+            scenario_tickets = session.scalar(
+                select(func.count())
+                .select_from(SupportTicket)
+                .where(
+                    SupportTicket.account_id.in_(account_ids),
+                    SupportTicket.source_scenario == scenario,
+                )
+            )
+            assert scenario_tickets and scenario_tickets > 0, scenario
+
+        checkout_accounts = [
+            account_id
+            for (account_id,) in session.execute(
+                select(Account.id).where(
+                    Account.source_scenario == "checkout_retry_regression"
+                )
+            )
+        ]
+        checkout_failures = session.scalar(
+            select(func.count())
+            .select_from(Invoice)
+            .where(
+                Invoice.account_id.in_(checkout_accounts),
+                Invoice.status == "failed",
+                Invoice.source_scenario == "checkout_retry_regression",
+                Invoice.failure_reason.ilike("%retry webhook%"),
+            )
+        )
+        assert checkout_failures == len(checkout_accounts)
+
+        churn_accounts = [
+            account_id
+            for (account_id,) in session.execute(
+                select(Account.id).where(Account.source_scenario == "enterprise_churn_wave")
+            )
+        ]
+        churned_subscriptions = session.scalar(
+            select(func.count())
+            .select_from(Subscription)
+            .where(
+                Subscription.account_id.in_(churn_accounts),
+                Subscription.status == "canceled",
+                Subscription.cancellation_reason.ilike("%onboarding%"),
+            )
+        )
+        void_invoices = session.scalar(
+            select(func.count())
+            .select_from(Invoice)
+            .where(
+                Invoice.account_id.in_(churn_accounts),
+                Invoice.status == "void",
+                Invoice.source_scenario == "enterprise_churn_wave",
+            )
+        )
+        assert churned_subscriptions == len(churn_accounts)
+        assert void_invoices == len(churn_accounts)
+
+        usage_accounts = [
+            account_id
+            for (account_id,) in session.execute(
+                select(Account.id).where(
+                    Account.source_scenario == "usage_drop_after_import_outage"
+                )
+            )
+        ]
+        import_failures = session.scalar(
+            select(func.count())
+            .select_from(ProductEvent)
+            .where(
+                ProductEvent.account_id.in_(usage_accounts),
+                ProductEvent.event_name == "import_failed",
+                ProductEvent.source_scenario == "usage_drop_after_import_outage",
+            )
+        )
+        integration_tickets = session.scalar(
+            select(func.count())
+            .select_from(SupportTicket)
+            .where(
+                SupportTicket.account_id.in_(usage_accounts),
+                SupportTicket.category == "integration",
+                SupportTicket.source_scenario == "usage_drop_after_import_outage",
+            )
+        )
+        assert import_failures and import_failures > 0
+        assert integration_tickets and integration_tickets > 0
+
+        export_accounts = [
+            account_id
+            for (account_id,) in session.execute(
+                select(Account.id).where(
+                    Account.source_scenario == "support_backlog_export_bug"
+                )
+            )
+        ]
+        report_exports = session.scalar(
+            select(func.count())
+            .select_from(ProductEvent)
+            .where(
+                ProductEvent.account_id.in_(export_accounts),
+                ProductEvent.event_name == "report_export",
+                ProductEvent.source_scenario == "support_backlog_export_bug",
+            )
+        )
+        product_tickets = session.scalar(
+            select(func.count())
+            .select_from(SupportTicket)
+            .where(
+                SupportTicket.account_id.in_(export_accounts),
+                SupportTicket.category == "product",
+                SupportTicket.source_scenario == "support_backlog_export_bug",
+            )
+        )
+        assert report_exports and report_exports > 0
+        assert product_tickets and product_tickets > 0
+
+        payment_accounts = [
+            account_id
+            for (account_id,) in session.execute(
+                select(Account.id).where(
+                    Account.source_scenario == "payment_method_expiration"
+                )
+            )
+        ]
+        payment_failures = session.scalar(
+            select(func.count())
+            .select_from(Invoice)
+            .where(
+                Invoice.account_id.in_(payment_accounts),
+                Invoice.status == "failed",
+                Invoice.source_scenario == "payment_method_expiration",
+                Invoice.failure_reason.ilike("%Expired cards%"),
+            )
+        )
+        card_tickets = session.scalar(
+            select(func.count())
+            .select_from(SupportTicket)
+            .where(
+                SupportTicket.account_id.in_(payment_accounts),
+                SupportTicket.subject.ilike("%Card expiration%"),
+                SupportTicket.source_scenario == "payment_method_expiration",
+            )
+        )
+        assert payment_failures == len(payment_accounts)
+        assert card_tickets and card_tickets > 0
+
+
 def test_dashboard_metrics_endpoint_returns_seeded_summary(
     session_factory: Callable[[], Session],
 ) -> None:
@@ -365,15 +585,20 @@ def test_seed_cli_refuses_unsafe_database_targets() -> None:
         "local",
     )
 
-    with pytest.raises(SystemExit, match="Refusing to reseed"):
+    with pytest.raises(SystemExit, match="Refusing to reseed outside local"):
+        validate_seed_target(
+            "postgresql+psycopg://ops_agent:ops_agent@postgres:5432/ops_agent",
+            "production",
+        )
+    with pytest.raises(SystemExit, match="Refusing to reseed a non-local database target"):
         validate_seed_target(
             "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
-            "production",
+            "local",
         )
     with pytest.raises(SystemExit, match="Refusing to reseed"):
         validate_seed_target(
             "postgresql+psycopg://ops_agent:ops_agent@db.example.com:5432/prod",
-            "local",
+            "production",
         )
 
 

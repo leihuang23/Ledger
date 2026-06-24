@@ -31,18 +31,48 @@ def session_factory(tmp_path) -> Generator[Callable[[], Session], None, None]:
 def test_bootstrap_lock_is_noop_for_non_postgres_dialects(
     session_factory: Callable[[], Session],
 ) -> None:
-    with session_factory().bind.connect() as connection:
-        engine = connection.engine
+    with session_factory() as session:
+        engine = session.get_bind()
 
-        with bootstrap_lock(engine):
-            pass
+    with bootstrap_lock(engine):
+        pass
+
+
+def test_bootstrap_lock_acquires_and_releases_advisory_lock_for_postgres_dialects() -> None:
+    from unittest.mock import MagicMock
+
+    from app.bootstrap import BOOTSTRAP_LOCK_ID
+
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.execution_options.return_value = connection
+
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value = connection
+
+    with bootstrap_lock(engine):
+        pass
+
+    assert connection.execute.call_count == 2
+    assert (
+        connection.execute.call_args_list[0].args[0].text
+        == "SELECT pg_advisory_lock(:lock_id)"
+    )
+    assert connection.execute.call_args_list[0].args[1] == {"lock_id": BOOTSTRAP_LOCK_ID}
+    assert (
+        connection.execute.call_args_list[1].args[0].text
+        == "SELECT pg_advisory_unlock(:lock_id)"
+    )
+    assert connection.execute.call_args_list[1].args[1] == {"lock_id": BOOTSTRAP_LOCK_ID}
 
 
 def test_run_startup_bootstrap_migrates_and_seeds_blank_database(
     session_factory: Callable[[], Session],
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("app.bootstrap.engine", session_factory().bind)
+    with session_factory() as session:
+        monkeypatch.setattr("app.bootstrap.engine", session.get_bind())
     monkeypatch.setattr("app.bootstrap.SessionLocal", session_factory)
     migration_calls: list[str] = []
 
@@ -67,7 +97,8 @@ def test_run_startup_bootstrap_skips_reseed_when_data_exists(
     with session_factory() as session:
         reseed_database(session)
 
-    monkeypatch.setattr("app.bootstrap.engine", session_factory().bind)
+    with session_factory() as session:
+        monkeypatch.setattr("app.bootstrap.engine", session.get_bind())
     monkeypatch.setattr("app.bootstrap.SessionLocal", session_factory)
 
     with patch("app.bootstrap.run_migrations") as run_migrations:

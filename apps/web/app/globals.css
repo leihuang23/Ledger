@@ -100,6 +100,71 @@ select {
   background: var(--red);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--foreground);
+  border-radius: 8px;
+  background: var(--foreground);
+  color: var(--panel);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.secondary-action {
+  border-color: var(--border-strong);
+  background: var(--panel);
+  color: var(--foreground);
+}
+
+.severity-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.severity-high {
+  border-color: #f2b8b5;
+  background: #fff0ee;
+  color: var(--red);
+}
+
+.severity-medium {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: var(--amber);
+}
+
+.severity-low {
+  border-color: #b8e7d5;
+  background: #edfcf5;
+  color: var(--green);
+}
+
 .snapshot-bar {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -197,6 +262,99 @@ select {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
+}
+
+.panel-message {
+  padding: 16px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.anomaly-panel {
+  margin-bottom: 16px;
+}
+
+.anomaly-list {
+  display: grid;
+}
+
+.anomaly-row {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.anomaly-row:last-child {
+  border-bottom: 0;
+}
+
+.anomaly-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.anomaly-main h3 {
+  margin: 8px 0 0;
+  font-size: 18px;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.anomaly-main p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.anomaly-facts,
+.evidence-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--border);
+}
+
+.anomaly-facts div,
+.evidence-list div {
+  min-width: 0;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.anomaly-facts dt,
+.evidence-list dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.anomaly-facts dd,
+.evidence-list dd {
+  margin: 6px 0 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.incident-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.9fr);
+}
+
+.evidence-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 0;
+  border-radius: 0;
 }
 
 .panel-header {
@@ -308,6 +466,42 @@ tbody tr:last-child td {
   line-height: 1;
 }
 
+.signal-stack {
+  display: grid;
+}
+
+.signal-row {
+  display: grid;
+  gap: 5px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.signal-row:last-child {
+  border-bottom: 0;
+}
+
+.signal-row strong {
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.signal-row span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.source-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px 16px 16px 34px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
 .empty-state {
   max-width: 720px;
   padding: 24px;
@@ -350,6 +544,11 @@ tbody tr:last-child td {
   .content-grid {
     grid-template-columns: 1fr;
   }
+
+  .anomaly-facts,
+  .evidence-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -361,13 +560,25 @@ tbody tr:last-child td {
     display: grid;
   }
 
+  .header-actions,
+  .anomaly-main {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .action-button {
+    width: 100%;
+  }
+
   .dashboard-header h1 {
     font-size: 24px;
   }
 
   .snapshot-bar,
   .metric-grid,
-  .stat-list {
+  .stat-list,
+  .anomaly-facts,
+  .evidence-list {
     grid-template-columns: 1fr;
   }
 

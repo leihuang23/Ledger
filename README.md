@@ -76,8 +76,8 @@ python -m app.seed --json
 ```
 
 This recreates the seeded SaaS domain tables with 60 accounts, 600 invoices,
-6,000 product events, and 240 support tickets. Re-running it should produce the
-same counts and fingerprint.
+6,000 product events, 240 support tickets, and 1 open incident. Re-running it
+should produce the same counts and fingerprint.
 
 ## Frontend Development
 
