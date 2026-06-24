@@ -141,7 +141,7 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
             validate_seed_target(settings.database_url, settings.app_env)
         except SystemExit as exc:
             raise SystemExit(
-                f"{exc}  Set ALLOW_UNSAFE_BOOTSTRAP_SEED=true only for an intentional demo reset."
+                f"{exc} Set ALLOW_UNSAFE_BOOTSTRAP_SEED=true only for an intentional demo reset."
             ) from exc
     try:
         return insert_seed_data(session)
