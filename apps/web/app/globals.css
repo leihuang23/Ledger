@@ -664,6 +664,79 @@ tbody tr:last-child td {
   margin-top: 16px;
 }
 
+.eval-results-panel {
+  margin-bottom: 16px;
+}
+
+.eval-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.eval-result-card {
+  overflow: hidden;
+}
+
+.eval-result-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.eval-failure-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 12px 12px 30px;
+  border: 1px solid #f2b8b5;
+  border-radius: 8px;
+  background: #fff0ee;
+  color: var(--red);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.eval-pass-note {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #b8e7d5;
+  border-radius: 8px;
+  background: #edfcf5;
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.eval-result-card details {
+  display: grid;
+  gap: 10px;
+}
+
+.eval-result-card summary {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.eval-result-card pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #101828;
+  color: #f2f4f7;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .approval-panel {
   margin-bottom: 16px;
 }
@@ -1018,6 +1091,10 @@ tbody tr:last-child td {
   }
 
   .knowledge-results {
+    grid-template-columns: 1fr;
+  }
+
+  .eval-detail-grid {
     grid-template-columns: 1fr;
   }
 

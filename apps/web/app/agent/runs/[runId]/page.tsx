@@ -94,7 +94,13 @@ function RunReport({
         </div>
         <div>
           <span className="label">Trace</span>
-          <strong>{run.trace_id ?? 'not recorded'}</strong>
+          <strong>
+            {run.trace_url && run.trace_url.startsWith('http') ? (
+              <a href={run.trace_url}>{run.trace_id ?? run.trace_provider ?? 'trace'}</a>
+            ) : (
+              run.trace_url ?? run.trace_id ?? 'not recorded'
+            )}
+          </strong>
         </div>
         <div>
           <span className="label">Estimated tokens</span>

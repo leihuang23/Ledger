@@ -6,7 +6,7 @@ This repository is for a production-shaped SaaS revenue and support operations a
 
 The project idea is strong because it demonstrates the hard parts of agentic software that hiring managers and technical reviewers actually care about: cross-source investigation, evidence-backed claims, constrained actions, run traces, and evals. The demo prompt, "MRR dropped this week," is a good anchor because it is concrete, business-relevant, and naturally requires analytics plus support context.
 
-The main risk is scope inflation. The recommended stack is credible but heavy for a first pass: Next.js, FastAPI, PostgreSQL, pgvector, Redis, LangGraph, LangSmith, Celery, Docker, and split deployment can easily become infrastructure theater before the agent proves anything. Prefer a narrow, verified system over a broad, half-working one.
+The main risk is scope inflation. The recommended stack is credible but heavy for a first pass: Next.js, FastAPI, PostgreSQL, pgvector, Redis, LangGraph, provider-backed observability, Celery, Docker, and split deployment can easily become infrastructure theater before the agent proves anything. Prefer a narrow, verified system over a broad, half-working one.
 
 The second risk is fake intelligence. A fluent final report is not enough. The product must prove that the agent found the right root cause from seeded data, cited concrete evidence, respected approval boundaries, and produced a trace that a reviewer can audit.
 

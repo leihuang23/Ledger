@@ -302,6 +302,9 @@ export type AgentRunDetail = {
   incident_id: string;
   status: 'running' | 'succeeded' | 'failed';
   trace_id: string | null;
+  trace_url: string | null;
+  trace_provider: 'langfuse' | 'langsmith' | 'local' | null;
+  trace_metadata: Record<string, unknown>;
   token_estimate: number;
   cost_estimate_usd: number;
   input_payload: Record<string, unknown>;
@@ -321,6 +324,61 @@ export type StartInvestigationResult =
 
 export type AgentRunDetailResult =
   | { ok: true; data: AgentRunDetail }
+  | { ok: false; error: string };
+
+export type EvalStatus = 'passed' | 'failed';
+
+export type EvalResult = {
+  id: string;
+  eval_run_id: string;
+  eval_case_id: string;
+  agent_run_id: string;
+  scenario: string;
+  status: EvalStatus;
+  passed: boolean;
+  root_cause_score: number;
+  citation_quality_score: number;
+  action_safety_score: number;
+  latency_ms: number;
+  expected_root_cause: string;
+  actual_root_cause: string | null;
+  expected_evidence_types: string[];
+  observed_evidence_types: string[];
+  failure_reasons: string[];
+  example_output: Record<string, unknown>;
+  trace_id: string | null;
+  trace_url: string | null;
+  trace_provider: 'langfuse' | 'langsmith' | 'local' | null;
+  started_at: string;
+  completed_at: string;
+  created_at: string;
+};
+
+export type EvalRunSummary = {
+  eval_run_id: string;
+  status: EvalStatus;
+  total_scenarios: number;
+  passed_scenarios: number;
+  failed_scenarios: number;
+  started_at: string;
+  completed_at: string;
+  results: EvalResult[];
+};
+
+export type EvalResultsReport = {
+  latest_eval_run_id: string | null;
+  total_scenarios: number;
+  passed_scenarios: number;
+  failed_scenarios: number;
+  results: EvalResult[];
+};
+
+export type EvalRunResult =
+  | { ok: true; data: EvalRunSummary }
+  | { ok: false; error: string };
+
+export type EvalResultsReportResult =
+  | { ok: true; data: EvalResultsReport }
   | { ok: false; error: string };
 
 export type ApprovalDecisionResult =
@@ -527,6 +585,69 @@ export async function getAgentRun(runId: string): Promise<AgentRunDetailResult> 
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Agent run endpoint unavailable',
+    };
+  }
+}
+
+export async function runEvalSuite(): Promise<EvalRunResult> {
+  try {
+    const headers: HeadersInit = {};
+    if (process.env.EVAL_RUN_TOKEN) {
+      headers['X-Eval-Run-Token'] = process.env.EVAL_RUN_TOKEN;
+    }
+
+    const response = await fetch(`${resolveApiBaseUrl()}/evals/run`, {
+      method: 'POST',
+      headers,
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Eval suite returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as EvalRunSummary,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Eval suite unavailable',
+    };
+  }
+}
+
+export async function getEvalResults(): Promise<EvalResultsReportResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/evals/results`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Eval results endpoint returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as EvalResultsReport,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Eval results unavailable',
     };
   }
 }

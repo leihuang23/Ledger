@@ -6,6 +6,7 @@ import {
   approveApprovalRequest,
   createIncidentFromAnomaly,
   rejectApprovalRequest,
+  runEvalSuite,
   startInvestigation,
 } from '@/lib/api';
 
@@ -58,6 +59,15 @@ export async function rejectApprovalFromRun(formData: FormData) {
   );
 
   redirectToRun(runId, result.ok ? undefined : result.error);
+}
+
+export async function runEvalSuiteFromReport() {
+  const result = await runEvalSuite();
+  if (!result.ok) {
+    redirect(`/evals?eval_error=${encodeURIComponent(result.error)}`);
+  }
+
+  redirect('/evals');
 }
 
 function readRequiredFormValue(formData: FormData, key: string) {

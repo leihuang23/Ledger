@@ -4,10 +4,13 @@
 - Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic.
 - Data: PostgreSQL, pgvector, Redis.
 - Agent orchestration: LangGraph.
-- Observability and evals: LangSmith.
+- Observability: provider adapter with Langfuse as the recommended open-source
+  provider, LangSmith as an optional adapter, and local trace identifiers as the
+  deterministic fallback.
 - Async jobs: Celery.
 - LLM provider layer: OpenAI first, Anthropic-compatible abstraction later.
-- Testing: pytest, Playwright, LangSmith eval datasets.
+- Testing: pytest, Playwright, seeded local eval cases persisted in the app
+  database; hosted Langfuse datasets or LangSmith experiments can be added later.
 - Deployment: Docker Compose locally; Vercel for frontend; Render/Fly/Railway for backend.
 
 ## PRD: SaaS Revenue and Support Ops Agent
@@ -42,7 +45,7 @@ Most AI agent demos are too toy-like. This project should prove that you can bui
 - Mock tools for Slack, email, task creation, and CRM updates.
 - Approval queue for sensitive actions.
 - Audit log and run history.
-- LangSmith tracing and evals.
+- Provider-neutral tracing and local eval result persistence.
 
 ### Out of Scope
 

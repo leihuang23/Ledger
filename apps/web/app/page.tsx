@@ -39,6 +39,9 @@ export default async function Home({ searchParams }: HomeProps) {
           <h1>SaaS revenue and support dashboard</h1>
         </div>
         <div className="header-actions">
+          <Link className="action-button secondary-action" href="/evals">
+            Evals
+          </Link>
           <Link className="action-button secondary-action" href="/knowledge">
             Knowledge
           </Link>
