@@ -139,11 +139,15 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
 
 
 def _abandon_orphaned_runs(session: Session, incident_id: str) -> None:
+    from datetime import timedelta
+
     now = utcnow_naive()
+    cutoff = now - timedelta(minutes=10)
     orphaned_runs = session.scalars(
         select(AgentRun).where(
             AgentRun.incident_id == incident_id,
             AgentRun.status == "running",
+            AgentRun.updated_at < cutoff,
         )
     ).all()
     if not orphaned_runs:
@@ -155,7 +159,6 @@ def _abandon_orphaned_runs(session: Session, incident_id: str) -> None:
         run.completed_at = run.completed_at or now
         run.updated_at = now
     session.commit()
-
 
 def backfill_report_actions(session: Session, run_id: str) -> None:
     run = session.get(AgentRun, run_id)
