@@ -251,8 +251,11 @@ Quick API checks after `docker compose up --build`:
 ```bash
 curl http://localhost:8000/health
 curl http://localhost:8000/ready
+curl http://localhost:8000/metrics/revenue
 curl http://localhost:8000/metrics/dashboard
 curl http://localhost:8000/metrics/anomalies
+curl http://localhost:8000/accounts/acct_001
+curl "http://localhost:8000/support/tickets?account_id=acct_001&limit=5"
 curl http://localhost:8000/incidents
 curl -X POST http://localhost:8000/evals/run -H "X-Eval-Run-Token: ${EVAL_RUN_TOKEN}"
 curl http://localhost:8000/evals/results
