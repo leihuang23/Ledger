@@ -85,6 +85,13 @@ def start_investigation_run(
     if finished_run is None:
         raise RuntimeError(f"Agent run disappeared: {run.id}")
     if finished_run.status != "running":
+        _finish_trace(
+            trace,
+            outputs=finished_run.final_report,
+            error=(finished_run.error or "Investigation interrupted before completion.")
+            if finished_run.status == "failed"
+            else None,
+        )
         return get_run_detail(session, finished_run.id), True
     finished_run.status = "succeeded"
     finished_run.error = None
