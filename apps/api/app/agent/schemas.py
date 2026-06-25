@@ -61,6 +61,9 @@ class AgentRunDetail(BaseModel):
     incident_id: str
     status: Literal["running", "succeeded", "failed"]
     trace_id: str | None
+    trace_url: str | None
+    trace_provider: str | None
+    trace_metadata: dict[str, Any] = Field(default_factory=dict)
     token_estimate: int
     cost_estimate_usd: float
     input_payload: dict[str, Any]

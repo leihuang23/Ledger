@@ -9,6 +9,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.agent.tracing import AgentTraceHandle
 from app.models import AgentRun, AgentRunStep
 
 T = TypeVar("T")
@@ -19,9 +20,12 @@ def utcnow_naive() -> datetime:
 
 
 class AgentRunRecorder:
-    def __init__(self, session: Session, run: AgentRun) -> None:
+    def __init__(
+        self, session: Session, run: AgentRun, trace: AgentTraceHandle | None = None
+    ) -> None:
         self.session = session
         self.run = run
+        self.trace = trace
         self._next_sequence: int | None = None
 
     def record(
@@ -34,7 +38,15 @@ class AgentRunRecorder:
     ) -> T:
         step = self._start_step(stage=stage, tool_name=tool_name, inputs=inputs)
         try:
-            output = action()
+            if self.trace is not None:
+                output = self.trace.record_child(
+                    name=tool_name or stage,
+                    run_type="tool" if tool_name else "chain",
+                    inputs=inputs,
+                    action=action,
+                )
+            else:
+                output = action()
         except Exception as exc:
             self._fail_step(step.id, exc)
             raise

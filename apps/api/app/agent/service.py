@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.persistence import utcnow_naive
 from app.agent.schemas import AgentRunDetail, AgentRunStepRead, InvestigationReport
+from app.agent.tracing import start_agent_trace
 from app.agent.workflow import run_investigation_workflow
 from app.approvals.service import list_mock_actions_for_run, propose_actions_for_report
 from app.models import AgentRun, AgentRunStep, Incident
@@ -37,11 +38,16 @@ def start_investigation_run(
     _abandon_orphaned_runs(session, incident_id)
 
     now = utcnow_naive()
+    run_id = f"run_{uuid4().hex[:16]}"
+    trace = start_agent_trace(run_id=run_id, incident_id=incident_id)
     run = AgentRun(
-        id=f"run_{uuid4().hex[:16]}",
+        id=run_id,
         incident_id=incident_id,
         status="running",
-        trace_id=f"local-{uuid4().hex[:16]}",
+        trace_id=trace.trace_id,
+        trace_url=trace.trace_url,
+        trace_provider=trace.provider,
+        trace_metadata=trace.metadata,
         input_payload={"incident_id": incident_id},
         final_report=None,
         token_estimate=0,
@@ -57,8 +63,9 @@ def start_investigation_run(
     session.refresh(run)
 
     try:
-        report = run_investigation_workflow(session, run)
+        report = run_investigation_workflow(session, run, trace)
     except Exception as exc:
+        _finish_trace(trace, error=str(exc))
         session.rollback()
         failed_run = session.get(AgentRun, run.id)
         if failed_run is None:
@@ -81,6 +88,7 @@ def start_investigation_run(
     finished_run.cost_estimate_usd = 0.0
     finished_run.completed_at = completed_at
     finished_run.updated_at = completed_at
+    _finish_trace(trace, outputs=finished_run.final_report)
     session.commit()
 
     try:
@@ -107,6 +115,9 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
         incident_id=run.incident_id,
         status=run.status,
         trace_id=run.trace_id,
+        trace_url=run.trace_url,
+        trace_provider=run.trace_provider,
+        trace_metadata=run.trace_metadata,
         token_estimate=run.token_estimate,
         cost_estimate_usd=run.cost_estimate_usd,
         input_payload=run.input_payload,
@@ -172,3 +183,12 @@ def backfill_report_actions(session: Session, run_id: str) -> None:
 def estimate_token_count(payload: dict[str, object]) -> int:
     text = json.dumps(payload, sort_keys=True)
     return max(1, len(text) // 4)
+
+
+def _finish_trace(
+    trace: object, *, outputs: object | None = None, error: str | None = None
+) -> None:
+    try:
+        trace.finish(outputs=outputs, error=error)  # type: ignore[attr-defined]
+    except Exception:
+        return

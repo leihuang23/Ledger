@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local"] = "local"
     embedding_model: Literal["local-hashing-v1"] = "local-hashing-v1"
     document_ingest_token: str | None = None
+    eval_run_token: str | None = None
+    observability_provider: Literal["auto", "local", "langfuse", "langsmith"] = "auto"
+    observability_full_payloads: bool = False
+    observability_timeout_seconds: int = Field(default=2, ge=1, le=30)
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_base_url: str = "https://cloud.langfuse.com"
+    langfuse_project_id: str | None = None
+    langsmith_tracing: bool = False
+    langsmith_api_key: str | None = None
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_project: str = "ops-agent-local"
+    langsmith_web_url: str = "https://smith.langchain.com"
 
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
@@ -26,12 +39,32 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("document_ingest_token", mode="before")
+    @field_validator(
+        "document_ingest_token",
+        "eval_run_token",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        "langfuse_project_id",
+        "langsmith_api_key",
+        mode="before",
+    )
     @classmethod
     def parse_optional_token(cls, value: str | None) -> str | None:
         if isinstance(value, str):
             stripped = value.strip()
             return stripped or None
+        return value
+
+    @field_validator(
+        "langfuse_base_url",
+        "langsmith_endpoint",
+        "langsmith_web_url",
+        mode="before",
+    )
+    @classmethod
+    def trim_url(cls, value: str) -> str:
+        if isinstance(value, str):
+            return value.strip()
         return value
 
     model_config = SettingsConfigDict(

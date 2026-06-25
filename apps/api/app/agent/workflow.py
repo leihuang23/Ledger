@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from app.agent.persistence import AgentRunRecorder, utcnow_naive
+from app.agent.tracing import AgentTraceHandle
 from app.agent.schemas import (
     InvestigationReport,
     ReportAffectedAccount,
@@ -47,9 +48,9 @@ class Diagnosis:
 
 
 def run_investigation_workflow(
-    session: Session, run: AgentRun
+    session: Session, run: AgentRun, trace: AgentTraceHandle | None = None
 ) -> InvestigationReport:
-    recorder = AgentRunRecorder(session, run)
+    recorder = AgentRunRecorder(session, run, trace)
     builder = StateGraph(InvestigationState)
 
     def intake_node(state: InvestigationState) -> dict[str, Any]:
@@ -391,10 +392,29 @@ def _diagnose_from_evidence(
         doc_results=doc_results,
         support_tickets=support_tickets,
     )
+    invoice_failure_text = _invoice_failure_text(account_details)
     has_failed_invoices = revenue_metrics["metric_evidence"]["failed_invoice_count"] > 0
     has_context = bool(doc_results["results"] or support_tickets["tickets"])
+    has_card_expiration_failure = _contains_any(
+        invoice_failure_text,
+        ["expired card", "expired cards", "card expiration", "payment method"],
+    )
+    has_retry_webhook_failure = "retry webhook" in invoice_failure_text
 
-    if has_failed_invoices and has_context and "retry webhook" in evidence_text:
+    if has_failed_invoices and has_context and has_card_expiration_failure:
+        return Diagnosis(
+            root_cause="Expired payment methods were not refreshed before renewal.",
+            next_actions=[
+                "Draft billing contact reminders.",
+                "Audit card-expiration notices.",
+                "Create approval-gated billing follow-up drafts for affected accounts.",
+            ],
+            is_specific=True,
+        )
+
+    if has_failed_invoices and has_context and (
+        has_retry_webhook_failure or "retry webhook" in evidence_text
+    ):
         return Diagnosis(
             root_cause="Billing retry webhook regression suppressed second charge attempts.",
             next_actions=[
@@ -511,6 +531,17 @@ def _evidence_text(
             if value
         )
     return " ".join(parts).lower()
+
+
+def _invoice_failure_text(account_details: dict[str, Any]) -> str:
+    reasons: list[str] = []
+    for account in account_details["accounts"]:
+        reasons.extend(
+            str(invoice.get("failure_reason"))
+            for invoice in account.get("failed_invoices", [])
+            if invoice.get("failure_reason")
+        )
+    return " ".join(reasons).lower()
 
 
 def _contains_any(text: str, needles: list[str]) -> bool:
