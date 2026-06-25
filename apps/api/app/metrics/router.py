@@ -41,6 +41,11 @@ def mrr(db: Session = Depends(get_db)) -> MrrMetrics:
     return get_mrr_metrics(db)
 
 
+@router.get("/revenue")
+def revenue(db: Session = Depends(get_db)) -> MrrMetrics:
+    return get_mrr_metrics(db)
+
+
 @router.get("/churn")
 def churn(db: Session = Depends(get_db)) -> ChurnMetrics:
     return get_churn_metrics(db)
