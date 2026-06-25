@@ -12,7 +12,7 @@ import type {
   ReportEvidence,
 } from '@/lib/api';
 import { getAgentRun } from '@/lib/api';
-import { formatCount, formatDateTime, formatMoney } from '@/lib/format';
+import { formatCount, formatDateTime, formatMoney, formatUsd } from '@/lib/format';
 
 type AgentRunPageProps = {
   params: Promise<{
@@ -105,6 +105,10 @@ function RunReport({
         <div>
           <span className="label">Estimated tokens</span>
           <strong>{formatCount(run.token_estimate)}</strong>
+        </div>
+        <div>
+          <span className="label">Estimated cost</span>
+          <strong>{formatUsd(run.cost_estimate_usd)}</strong>
         </div>
       </section>
 

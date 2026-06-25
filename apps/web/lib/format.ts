@@ -4,10 +4,20 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 4,
+});
+
 const numberFormatter = new Intl.NumberFormat('en-US');
 
 export function formatMoney(cents: number) {
   return moneyFormatter.format(cents / 100);
+}
+
+export function formatUsd(value: number) {
+  return usdFormatter.format(value);
 }
 
 export function formatPercent(value: number) {
