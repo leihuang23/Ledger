@@ -62,6 +62,32 @@ def list_support_tickets(
     )
 
 
+def get_support_ticket(session: Session, ticket_id: str) -> SupportTicketRead | None:
+    row = session.execute(
+        select(SupportTicket, Account.name.label("account_name"))
+        .join(Account, Account.id == SupportTicket.account_id)
+        .where(SupportTicket.id == ticket_id)
+    ).first()
+    if row is None:
+        return None
+    ticket, account_name = row
+    return SupportTicketRead(
+        id=ticket.id,
+        account_id=ticket.account_id,
+        account_name=account_name,
+        user_id=ticket.user_id,
+        created_at=ticket.created_at,
+        resolved_at=ticket.resolved_at,
+        status=ticket.status,
+        priority=ticket.priority,
+        category=ticket.category,
+        subject=ticket.subject,
+        description=ticket.description,
+        sentiment=ticket.sentiment,
+        source_scenario=ticket.source_scenario,
+    )
+
+
 def _apply_filters(
     query: Select,
     *,

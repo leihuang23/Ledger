@@ -2,19 +2,30 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.access import require_demo_data_access
 from app.db.session import get_db
-from app.support.schemas import SupportTicketList
-from app.support.service import list_support_tickets
+from app.support.schemas import SupportTicketList, SupportTicketRead
+from app.support.service import get_support_ticket, list_support_tickets
 
 router = APIRouter(
     prefix="/support",
     tags=["support"],
     dependencies=[Depends(require_demo_data_access)],
 )
+
+
+@router.get("/tickets/{ticket_id}")
+def support_ticket_detail(ticket_id: str, db: Session = Depends(get_db)) -> SupportTicketRead:
+    ticket = get_support_ticket(db, ticket_id)
+    if ticket is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown ticket id: {ticket_id}",
+        )
+    return ticket
 
 
 @router.get("/tickets")

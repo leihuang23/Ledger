@@ -140,6 +140,27 @@ export type AccountProductEventSummary = {
   source_scenario: string | null;
 };
 
+export type SupportTicket = {
+  id: string;
+  account_id: string;
+  account_name: string;
+  user_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  status: string;
+  priority: string;
+  category: string;
+  subject: string;
+  description: string;
+  sentiment: string;
+  source_scenario: string | null;
+};
+
+export type SupportTicketList = {
+  total: number;
+  tickets: SupportTicket[];
+};
+
 export type AccountDetail = {
   id: string;
   name: string;
@@ -861,6 +882,14 @@ export type ApprovalRequestListResult =
   | { ok: true; data: ApprovalRequest[] }
   | { ok: false; error: string };
 
+export type SupportTicketListResult =
+  | { ok: true; data: SupportTicketList }
+  | { ok: false; error: string };
+
+export type SupportTicketDetailResult =
+  | { ok: true; data: SupportTicket }
+  | { ok: false; error: string };
+
 export async function listApprovalRequests(
   status?: ApprovalStatus,
 ): Promise<ApprovalRequestListResult> {
@@ -888,6 +917,65 @@ export async function listApprovalRequests(
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Approvals endpoint unavailable',
+    };
+  }
+}
+
+export async function getSupportTickets(options: {
+  account_id?: string;
+  status?: string;
+  category?: string;
+} = {}): Promise<SupportTicketListResult> {
+  try {
+    const searchParams = new URLSearchParams();
+    if (options.account_id) searchParams.set('account_id', options.account_id);
+    if (options.status) searchParams.set('status', options.status);
+    if (options.category) searchParams.set('category', options.category);
+    const query = searchParams.toString();
+    const response = await fetch(`${resolveApiBaseUrl()}/support/tickets${query ? `?${query}` : ''}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Support tickets endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as SupportTicketList,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Support tickets endpoint unavailable',
+    };
+  }
+}
+
+export async function getSupportTicket(ticketId: string): Promise<SupportTicketDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/support/tickets/${encodeURIComponent(ticketId)}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Support ticket endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as SupportTicket,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Support ticket endpoint unavailable',
     };
   }
 }
