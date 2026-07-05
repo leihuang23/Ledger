@@ -16,7 +16,7 @@ from app.approvals.service import (
     list_approval_requests,
     reject_request,
 )
-from app.core.access import require_demo_data_access
+from app.core.access import require_demo_data_access, require_demo_operator_access
 from app.db.session import get_db
 
 mock_actions_router = APIRouter(
@@ -31,7 +31,11 @@ approvals_router = APIRouter(
 )
 
 
-@mock_actions_router.post("", status_code=status.HTTP_201_CREATED)
+@mock_actions_router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_demo_operator_access)],
+)
 def propose_mock_action(
     payload: MockActionCreate,
     db: Session = Depends(get_db),
@@ -58,7 +62,10 @@ def approval_queue(
     return list_approval_requests(db, status=status)
 
 
-@approvals_router.post("/{approval_id}/approve")
+@approvals_router.post(
+    "/{approval_id}/approve",
+    dependencies=[Depends(require_demo_operator_access)],
+)
 def approve(
     approval_id: str,
     payload: ApprovalDecisionCreate,
@@ -75,7 +82,10 @@ def approve(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@approvals_router.post("/{approval_id}/reject")
+@approvals_router.post(
+    "/{approval_id}/reject",
+    dependencies=[Depends(require_demo_operator_access)],
+)
 def reject(
     approval_id: str,
     payload: ApprovalDecisionCreate,

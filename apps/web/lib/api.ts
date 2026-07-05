@@ -211,11 +211,18 @@ export type ReportEvidence = {
   citation: Record<string, unknown>;
 };
 
+export type ReportClaim = {
+  category: 'root_cause' | 'impact' | 'recommendation' | 'uncertainty';
+  text: string;
+  citation_refs: string[];
+};
+
 export type InvestigationReport = {
   root_cause: string;
   summary: string;
   affected_accounts: ReportAffectedAccount[];
   cited_evidence: ReportEvidence[];
+  claims: ReportClaim[];
   confidence: 'low' | 'medium' | 'high';
   next_actions: string[];
   generated_at: string;
@@ -300,7 +307,8 @@ export type AgentRunStep = {
 export type AgentRunDetail = {
   id: string;
   incident_id: string;
-  status: 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  is_stale: boolean;
   trace_id: string | null;
   trace_url: string | null;
   trace_provider: 'langfuse' | 'langsmith' | 'local' | null;
@@ -528,6 +536,7 @@ export async function getIncident(incidentId: string): Promise<IncidentDetailRes
 
 export async function startInvestigation(
   incidentId: string,
+  options: { runInline?: boolean } = {},
 ): Promise<StartInvestigationResult> {
   try {
     const response = await fetch(`${resolveApiBaseUrl()}/agent/investigations`, {
@@ -535,7 +544,10 @@ export async function startInvestigation(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ incident_id: incidentId }),
+      body: JSON.stringify({
+        incident_id: incidentId,
+        run_inline: options.runInline ?? false,
+      }),
       cache: 'no-store',
     });
 

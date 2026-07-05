@@ -150,3 +150,82 @@ def test_new_prd_demo_routes_fail_closed_outside_demo_environments(
         get_settings.cache_clear()
 
     assert [response.status_code for response in responses] == [403, 403, 403]
+
+
+def test_public_demo_mutation_routes_require_operator_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "demo")
+    get_settings.cache_clear()
+    client = TestClient(app)
+    try:
+        responses = [
+            client.post("/incidents", json={"anomaly_id": "rev_anomaly_week_20260603"}),
+            client.post(
+                "/agent/investigations",
+                json={"incident_id": "inc_rev_mrr_wow_drop_20260603"},
+            ),
+            client.post(
+                "/mock-actions",
+                json={
+                    "run_id": "run_demo",
+                    "action_type": "draft_slack_message",
+                    "title": "Draft",
+                    "description": "Draft an update.",
+                    "target": "#ops",
+                    "payload": {"message": "hello"},
+                },
+            ),
+            client.post("/approvals/apr_demo/approve", json={}),
+            client.post("/approvals/apr_demo/reject", json={}),
+        ]
+    finally:
+        monkeypatch.delenv("APP_ENV", raising=False)
+        get_settings.cache_clear()
+
+    assert [response.status_code for response in responses] == [403, 403, 403, 403, 403]
+    assert all("DEMO_OPERATOR_TOKEN" in response.json()["detail"] for response in responses)
+
+
+def test_public_demo_mutation_route_validates_configured_operator_token(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "demo")
+    monkeypatch.setenv("DEMO_OPERATOR_TOKEN", "operator-secret")
+    get_settings.cache_clear()
+    with session_factory() as session:
+        reseed_database(session)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        missing_response = client.post(
+            "/incidents",
+            json={"anomaly_id": "rev_mrr_wow_drop_20260603"},
+        )
+        wrong_response = client.post(
+            "/incidents",
+            headers={"X-Demo-Operator-Token": "wrong-secret"},
+            json={"anomaly_id": "rev_mrr_wow_drop_20260603"},
+        )
+        allowed_response = client.post(
+            "/incidents",
+            headers={"X-Demo-Operator-Token": "operator-secret"},
+            json={"anomaly_id": "rev_mrr_wow_drop_20260603"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+        monkeypatch.delenv("APP_ENV", raising=False)
+        monkeypatch.delenv("DEMO_OPERATOR_TOKEN", raising=False)
+        get_settings.cache_clear()
+
+    assert missing_response.status_code == 403
+    assert wrong_response.status_code == 403
+    assert allowed_response.status_code in {200, 201}
+    assert missing_response.json()["detail"] == "Invalid demo operator token."
+    assert wrong_response.json()["detail"] == "Invalid demo operator token."

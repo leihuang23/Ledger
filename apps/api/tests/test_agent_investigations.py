@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Callable, Generator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.models  # noqa: F401
@@ -14,10 +17,11 @@ from app.agent.schemas import (
     ReportAffectedAccount,
     ReportEvidence,
 )
+from app.agent.persistence import utcnow_naive
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun, Incident
+from app.models import AgentRun, AgentRunStep, Incident
 from app.seed import reseed_database
 
 
@@ -65,7 +69,7 @@ def test_investigation_run_produces_structured_evidence_backed_report(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
     finally:
         app.dependency_overrides.clear()
@@ -130,6 +134,23 @@ def test_investigation_run_produces_structured_evidence_backed_report(
         for item in report["cited_evidence"]
         if item["kind"] == "document"
     )
+    evidence_refs = {item["reference_id"] for item in report["cited_evidence"]}
+    assert {claim["category"] for claim in report["claims"]} >= {
+        "root_cause",
+        "impact",
+        "recommendation",
+    }
+    assert all(claim["citation_refs"] for claim in report["claims"])
+    assert all(
+        set(claim["citation_refs"]).issubset(evidence_refs)
+        for claim in report["claims"]
+    )
+    cited_recommendations = {
+        claim["text"]
+        for claim in report["claims"]
+        if claim["category"] == "recommendation" and claim["citation_refs"]
+    }
+    assert set(report["next_actions"]).issubset(cited_recommendations)
 
     tool_steps = [step for step in payload["steps"] if step["tool_name"]]
     assert {step["tool_name"] for step in tool_steps} >= {
@@ -137,8 +158,63 @@ def test_investigation_run_produces_structured_evidence_backed_report(
         "fetch_account_details",
         "search_docs",
         "fetch_support_tickets",
+        "propose_actions",
     }
     assert all(step["status"] == "succeeded" for step in tool_steps)
+
+
+def test_default_investigation_launch_returns_queued_run_then_completes(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+
+    assert incident_id is not None
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    def execute_with_test_session(run_id: str) -> None:
+        from app.agent.service import execute_investigation_run_with_session
+
+        with session_factory() as db:
+            execute_investigation_run_with_session(db, run_id)
+
+    monkeypatch.setattr(
+        "app.agent.router.execute_investigation_run",
+        execute_with_test_session,
+    )
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id},
+        )
+        payload = response.json()
+        run_response = client.get(f"/agent/runs/{payload['id']}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert payload["status"] == "queued"
+    assert payload["trace_id"] is None
+    assert payload["final_report"] is None
+
+    assert run_response.status_code == 200
+    completed = run_response.json()
+    assert completed["status"] == "succeeded"
+    assert completed["trace_id"]
+    assert completed["trace_provider"]
+    assert completed["final_report"] is not None
+    assert completed["token_estimate"] > 0
+    assert completed["cost_estimate_usd"] == 0.0
+    assert completed["steps"]
+    assert completed["mock_actions"]
 
 
 def test_investigation_start_restarts_after_orphaned_running_run(
@@ -176,7 +252,7 @@ def test_investigation_start_restarts_after_orphaned_running_run(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
         orphaned_response = client.get("/agent/runs/run_orphaned_running")
     finally:
@@ -229,7 +305,7 @@ def test_abandoned_run_is_not_resurrected_when_workflow_completes(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
         run_id = response.json()["id"]
         detail_response = client.get(f"/agent/runs/{run_id}")
@@ -248,7 +324,313 @@ def test_abandoned_run_is_not_resurrected_when_workflow_completes(
     assert detail_payload["final_report"] is None
 
 
-def test_investigation_succeeds_when_action_proposal_fails(
+def test_investigation_start_reuses_active_queued_run_by_default(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = datetime(2026, 6, 9, 12, 30, 0)
+        active_run = AgentRun(
+            id="run_active_queued",
+            incident_id=incident_id,
+            status="queued",
+            trace_id=None,
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=None,
+            completed_at=None,
+            created_at=now,
+            updated_at=utcnow_naive() - timedelta(minutes=1),
+        )
+        session.add(active_run)
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "run_active_queued"
+    assert payload["status"] == "queued"
+
+
+def test_agent_run_read_exposes_stale_queued_run_without_mutating_status(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = datetime(2026, 6, 9, 12, 30, 0)
+        stale_run = AgentRun(
+            id="run_stale_queued",
+            incident_id=incident_id,
+            status="queued",
+            trace_id=None,
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=None,
+            completed_at=None,
+            created_at=now,
+            updated_at=utcnow_naive() - timedelta(minutes=11),
+        )
+        session.add(stale_run)
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.get("/agent/runs/run_stale_queued")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "queued"
+    assert payload["is_stale"] is True
+    assert payload["error"] is None
+    with session_factory() as session:
+        persisted_status = session.get(AgentRun, "run_stale_queued").status
+    assert persisted_status == "queued"
+
+
+def test_running_run_with_recent_step_activity_is_not_marked_stale(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        old_timestamp = utcnow_naive() - timedelta(minutes=11)
+        run = AgentRun(
+            id="run_running_with_recent_step",
+            incident_id=incident_id,
+            status="running",
+            trace_id="local-test-trace",
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=old_timestamp,
+            completed_at=None,
+            created_at=old_timestamp,
+            updated_at=old_timestamp,
+        )
+        step = AgentRunStep(
+            id="step_recent_activity",
+            run_id=run.id,
+            sequence=1,
+            stage="query revenue",
+            tool_name="query_revenue_metrics",
+            status="running",
+            inputs={},
+            outputs=None,
+            error=None,
+            started_at=utcnow_naive() - timedelta(minutes=1),
+            completed_at=None,
+            created_at=old_timestamp,
+        )
+        session.add_all([run, step])
+        session.commit()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.get("/agent/runs/run_running_with_recent_step")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "running"
+    assert payload["is_stale"] is False
+    assert payload["error"] is None
+
+
+def test_failed_run_is_terminal_for_background_executor(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = utcnow_naive() - timedelta(minutes=11)
+        run = AgentRun(
+            id="run_failed_terminal",
+            incident_id=incident_id,
+            status="failed",
+            trace_id="local-test-trace",
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error="Investigation interrupted before completion.",
+            started_at=now,
+            completed_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(run)
+        session.commit()
+
+        def fail_if_called(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("failed runs must not be executed")
+
+        monkeypatch.setattr(
+            "app.agent.service.run_investigation_workflow",
+            fail_if_called,
+        )
+
+        from app.agent.service import execute_investigation_run_with_session
+
+        detail = execute_investigation_run_with_session(session, run.id)
+
+    assert detail.status == "failed"
+    assert detail.error == "Investigation interrupted before completion."
+    assert detail.steps == []
+
+
+def test_concurrent_executors_claim_queued_run_once(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = utcnow_naive()
+        run = AgentRun(
+            id="run_claim_once",
+            incident_id=incident_id,
+            status="queued",
+            trace_id=None,
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=None,
+            completed_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(run)
+        session.commit()
+
+    workflow_calls = 0
+    workflow_lock = threading.Lock()
+
+    def workflow_once(*_args: object, **_kwargs: object) -> InvestigationReport:
+        nonlocal workflow_calls
+        with workflow_lock:
+            workflow_calls += 1
+        time.sleep(0.05)
+        return sample_report()
+
+    monkeypatch.setattr("app.agent.service.run_investigation_workflow", workflow_once)
+    monkeypatch.setattr("app.agent.service.propose_actions_for_report", lambda *_args, **_kwargs: [])
+
+    from app.agent.service import execute_investigation_run_with_session
+
+    errors: list[BaseException] = []
+
+    def execute() -> None:
+        try:
+            with session_factory() as db:
+                execute_investigation_run_with_session(db, "run_claim_once")
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=execute), threading.Thread(target=execute)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert workflow_calls == 1
+    with session_factory() as session:
+        run = session.get(AgentRun, "run_claim_once")
+        assert run is not None
+        assert run.status == "succeeded"
+
+
+def test_database_rejects_two_active_runs_for_one_incident(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = utcnow_naive()
+        first_run = AgentRun(
+            id="run_active_one",
+            incident_id=incident_id,
+            status="queued",
+            trace_id=None,
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=None,
+            completed_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        second_run = AgentRun(
+            id="run_active_two",
+            incident_id=incident_id,
+            status="running",
+            trace_id="local-test-trace",
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=0,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=now,
+            completed_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(first_run)
+        session.commit()
+        session.add(second_run)
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_investigation_fails_visibly_when_action_proposal_fails(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -275,16 +657,22 @@ def test_investigation_succeeds_when_action_proposal_fails(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["status"] == "succeeded"
+    assert payload["status"] == "failed"
     assert payload["final_report"] is not None
+    assert "Action proposal failed: mock action proposal unavailable" in payload["error"]
     assert payload["mock_actions"] == []
+    failed_step = next(
+        step for step in payload["steps"] if step["tool_name"] == "propose_actions"
+    )
+    assert failed_step["status"] == "failed"
+    assert "mock action proposal unavailable" in failed_step["error"]
 
 
 def test_investigation_start_reuses_existing_successful_run_by_default(
@@ -305,11 +693,11 @@ def test_investigation_start_reuses_existing_successful_run_by_default(
     try:
         first_response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
         second_response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
     finally:
         app.dependency_overrides.clear()
@@ -355,7 +743,7 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
     finally:
         app.dependency_overrides.clear()
@@ -432,7 +820,7 @@ def test_investigation_with_no_affected_accounts_finishes_with_uncertainty(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
     finally:
         app.dependency_overrides.clear()
@@ -473,7 +861,7 @@ def test_failed_tool_call_is_persisted_and_surfaced(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id},
+            json={"incident_id": incident_id, "run_inline": True},
         )
         run_id = response.json()["id"]
         persisted_response = client.get(f"/agent/runs/{run_id}")

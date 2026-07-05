@@ -181,12 +181,7 @@ def _build_eval_result(
 def score_eval_case(case: EvalCase, run_detail: AgentRunDetail) -> dict[str, Any]:
     report = run_detail.final_report
     actual_root_cause = report.root_cause if report is not None else None
-    root_cause_score = (
-        1.0
-        if actual_root_cause is not None
-        and _normalize_text(actual_root_cause) == _normalize_text(case.expected_root_cause)
-        else 0.0
-    )
+    root_cause_score = score_root_cause(case.expected_root_cause, actual_root_cause)
 
     citation_quality = score_citation_quality(case, run_detail)
 
@@ -238,6 +233,14 @@ def score_eval_case(case: EvalCase, run_detail: AgentRunDetail) -> dict[str, Any
         "failure_reasons": failure_reasons,
         "example_output": example_output(run_detail),
     }
+
+
+def score_root_cause(expected: str, actual: str | None) -> float:
+    if actual is None:
+        return 0.0
+    if _normalize_text(actual) == _normalize_text(expected):
+        return 1.0
+    return 0.0
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,8 +13,9 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://ops_agent:ops_agent@localhost:5432/ops_agent"
     )
     redis_url: str = "redis://localhost:6379/0"
-    backend_cors_origins: list[str] = ["http://localhost:3000"]
+    backend_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     allow_unsafe_bootstrap_seed: bool = False
+    demo_operator_token: str | None = None
     embedding_provider: Literal["local"] = "local"
     embedding_model: Literal["local-hashing-v1"] = "local-hashing-v1"
     document_ingest_token: str | None = None
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "document_ingest_token",
+        "demo_operator_token",
         "eval_run_token",
         "langfuse_public_key",
         "langfuse_secret_key",

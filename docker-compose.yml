@@ -29,6 +29,7 @@ services:
     build:
       context: ./apps/api
     environment:
+      APP_ENV: ${APP_ENV:-demo}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://ops_agent:ops_agent@postgres:5432/ops_agent}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
@@ -36,6 +37,7 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-local-hashing-v1}
       DOCUMENT_INGEST_TOKEN: ${DOCUMENT_INGEST_TOKEN:-}
       EVAL_RUN_TOKEN: ${EVAL_RUN_TOKEN:-}
+      DEMO_OPERATOR_TOKEN: ${DEMO_OPERATOR_TOKEN:-}
       OBSERVABILITY_PROVIDER: ${OBSERVABILITY_PROVIDER:-auto}
       OBSERVABILITY_FULL_PAYLOADS: ${OBSERVABILITY_FULL_PAYLOADS:-false}
       OBSERVABILITY_TIMEOUT_SECONDS: ${OBSERVABILITY_TIMEOUT_SECONDS:-2}

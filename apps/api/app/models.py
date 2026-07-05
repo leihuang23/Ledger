@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -241,6 +242,15 @@ class KnowledgeDocumentChunk(Base):
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
+    __table_args__ = (
+        Index(
+            "uq_agent_runs_active_incident",
+            "incident_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(48), primary_key=True)
     incident_id: Mapped[str] = mapped_column(

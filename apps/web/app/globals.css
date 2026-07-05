@@ -570,6 +570,7 @@ tbody tr:last-child td {
 }
 
 .run-status-running,
+.run-status-queued,
 .confidence-medium,
 .step-running,
 .action-pending_approval,

@@ -12,6 +12,7 @@ from app.agent.tracing import AgentTraceHandle
 from app.agent.schemas import (
     InvestigationReport,
     ReportAffectedAccount,
+    ReportClaim,
     ReportEvidence,
 )
 from app.agent.tools import (
@@ -276,11 +277,92 @@ def _synthesize_report(state: InvestigationState) -> InvestigationReport:
             account.model_dump(mode="json") for account in affected_accounts
         ],
         "cited_evidence": [item.model_dump(mode="json") for item in evidence],
+        "claims": [
+            claim.model_dump(mode="json")
+            for claim in _report_claims(
+                diagnosis=diagnosis,
+                evidence=evidence,
+                affected_count=affected_count,
+                account_context=account_context,
+            )
+        ],
         "confidence": confidence,
         "next_actions": diagnosis.next_actions,
         "generated_at": utcnow_naive(),
     }
     return InvestigationReport.model_validate(raw_report)
+
+
+def _report_claims(
+    *,
+    diagnosis: Diagnosis,
+    evidence: list[ReportEvidence],
+    affected_count: int,
+    account_context: str,
+) -> list[ReportClaim]:
+    refs_by_kind: dict[str, list[str]] = {}
+    for item in evidence:
+        refs_by_kind.setdefault(item.kind, []).append(item.reference_id)
+
+    all_refs = [item.reference_id for item in evidence]
+    root_cause_refs = _first_refs(
+        refs_by_kind.get("sql", []),
+        refs_by_kind.get("document", []),
+        refs_by_kind.get("ticket", []),
+    )
+    impact_refs = _first_refs(refs_by_kind.get("sql", []), refs_by_kind.get("ticket", []))
+    recommendation_refs = _first_refs(
+        refs_by_kind.get("document", []),
+        refs_by_kind.get("ticket", []),
+        refs_by_kind.get("sql", []),
+    )
+
+    claims = [
+        ReportClaim(
+            category="root_cause",
+            text=diagnosis.root_cause,
+            citation_refs=root_cause_refs or all_refs[:1],
+        ),
+        ReportClaim(
+            category="impact",
+            text=account_context,
+            citation_refs=impact_refs or all_refs[:1],
+        ),
+    ]
+
+    for action in diagnosis.next_actions:
+        claims.append(
+            ReportClaim(
+                category="recommendation",
+                text=action,
+                citation_refs=recommendation_refs or all_refs[:1],
+            )
+        )
+
+    if not diagnosis.is_specific:
+        claims.append(
+            ReportClaim(
+                category="uncertainty",
+                text=(
+                    "The available evidence is insufficient to prove a specific "
+                    "operational root cause."
+                ),
+                citation_refs=all_refs[:2],
+            )
+        )
+
+    return claims
+
+
+def _first_refs(*groups: list[str], limit: int = 4) -> list[str]:
+    refs: list[str] = []
+    for group in groups:
+        for ref in group:
+            if ref not in refs:
+                refs.append(ref)
+            if len(refs) >= limit:
+                return refs
+    return refs
 
 
 def _report_evidence(

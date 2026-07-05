@@ -4,11 +4,13 @@ import {
   approveApprovalFromRun,
   rejectApprovalFromRun,
 } from '@/app/actions';
+import { RunRefresh } from './RunRefresh';
 import type {
   ActionAuditEvent,
   AgentRunDetail,
   AgentRunStep,
   MockAction,
+  ReportClaim,
   ReportEvidence,
 } from '@/lib/api';
 import { getAgentRun } from '@/lib/api';
@@ -59,6 +61,7 @@ function RunReport({
   run: AgentRunDetail;
 }) {
   const report = run.final_report;
+  const runIsActive = !run.is_stale && (run.status === 'queued' || run.status === 'running');
 
   return (
     <main className="dashboard-shell">
@@ -67,9 +70,11 @@ function RunReport({
           <p className="eyebrow">Investigation {run.id}</p>
           <h1>
             {report?.root_cause ??
-              (run.status === 'running'
-                ? 'Investigation in progress'
-                : 'Investigation failed before report synthesis')}
+              (run.is_stale
+                ? 'Investigation interrupted before completion'
+                : runIsActive
+                  ? 'Investigation in progress'
+                  : 'Investigation failed before report synthesis')}
           </h1>
         </div>
         <div className="header-actions">
@@ -117,6 +122,15 @@ function RunReport({
           <div className="panel-message error-detail">{run.error}</div>
         </section>
       ) : null}
+      {run.is_stale ? (
+        <section className="panel anomaly-panel" aria-live="polite">
+          <div className="panel-message error-detail">
+            No recent execution activity was recorded for this run.
+          </div>
+        </section>
+      ) : null}
+
+      <RunRefresh active={runIsActive} />
 
       {report ? (
         <section className="report-grid">
@@ -143,6 +157,8 @@ function RunReport({
               ))}
             </ol>
           </div>
+
+          <ClaimPanel claims={report.claims ?? []} />
 
           <div className="panel table-panel report-panel-wide">
             <div className="panel-header">
@@ -187,6 +203,39 @@ function RunReport({
 
       <StepHistory steps={run.steps} />
     </main>
+  );
+}
+
+function ClaimPanel({ claims }: { claims: ReportClaim[] }) {
+  return (
+    <div className="panel report-panel-wide">
+      <div className="panel-header">
+        <h2>Claim citations</h2>
+        <span>{formatCount(claims.length)} claims</span>
+      </div>
+      {claims.length > 0 ? (
+        <div className="evidence-stack">
+          {claims.map((claim) => (
+            <article className="evidence-item" key={`${claim.category}-${claim.text}`}>
+              <div>
+                <span className="evidence-kind evidence-document">
+                  {claim.category.replaceAll('_', ' ')}
+                </span>
+                <p>{claim.text}</p>
+              </div>
+              <dl className="citation-grid compact-citation">
+                <div>
+                  <dt>References</dt>
+                  <dd>{claim.citation_refs.join(', ') || 'none'}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="panel-message">No claim-level citations recorded.</div>
+      )}
+    </div>
   );
 }
 

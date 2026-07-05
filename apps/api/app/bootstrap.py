@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from app.agent.service import abandon_orphaned_active_runs
 from app.db.session import SessionLocal, engine
 from app.seed import ensure_seeded_if_empty
 
@@ -50,6 +51,9 @@ def run_startup_bootstrap() -> None:
                 print(f"Seeded empty database (fingerprint={result.fingerprint})")
             else:
                 print("Seed data already present; skipping reseed")
+            abandoned_count = abandon_orphaned_active_runs(session)
+            if abandoned_count:
+                print(f"Marked {abandoned_count} stale agent run(s) failed")
 
 
 def main() -> None:

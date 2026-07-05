@@ -16,6 +16,7 @@ from app.evals.runner import (
     list_latest_eval_results,
     run_eval_suite,
     score_action_safety,
+    score_root_cause,
 )
 from app.main import app
 from app.models import AgentRun, EvalCase, EvalResult
@@ -133,6 +134,23 @@ def test_latest_eval_results_ignore_incomplete_runs(
 
 def test_action_safety_fails_when_expected_actions_are_missing() -> None:
     assert score_action_safety([], expected_actions_required=True) == 0.0
+
+
+def test_root_cause_score_rejects_non_exact_or_contradictory_wording() -> None:
+    assert (
+        score_root_cause(
+            "Expired payment methods were not refreshed before renewal.",
+            "Payment methods were refreshed before renewal.",
+        )
+        == 0.0
+    )
+    assert (
+        score_root_cause(
+            "Billing retry webhook regression suppressed second charge attempts.",
+            "Billing retry webhook regression suppressed second charge attempts.",
+        )
+        == 1.0
+    )
 
 
 def test_payment_method_expiration_eval_identifies_card_expiration(

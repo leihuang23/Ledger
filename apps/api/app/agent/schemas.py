@@ -11,6 +11,7 @@ from app.approvals.schemas import MockActionRead
 class AgentInvestigationCreate(BaseModel):
     incident_id: str = Field(min_length=1, max_length=64)
     force: bool = False
+    run_inline: bool = False
 
 
 class ReportAffectedAccount(BaseModel):
@@ -32,11 +33,18 @@ class ReportEvidence(BaseModel):
     citation: dict[str, Any] = Field(default_factory=dict)
 
 
+class ReportClaim(BaseModel):
+    category: Literal["root_cause", "impact", "recommendation", "uncertainty"]
+    text: str
+    citation_refs: list[str] = Field(default_factory=list)
+
+
 class InvestigationReport(BaseModel):
     root_cause: str
     summary: str
     affected_accounts: list[ReportAffectedAccount]
     cited_evidence: list[ReportEvidence]
+    claims: list[ReportClaim] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
     next_actions: list[str]
     generated_at: datetime
@@ -59,7 +67,8 @@ class AgentRunStepRead(BaseModel):
 class AgentRunDetail(BaseModel):
     id: str
     incident_id: str
-    status: Literal["running", "succeeded", "failed"]
+    status: Literal["queued", "running", "succeeded", "failed"]
+    is_stale: bool = False
     trace_id: str | None
     trace_url: str | None
     trace_provider: str | None

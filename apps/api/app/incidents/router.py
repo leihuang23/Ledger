@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.access import require_demo_data_access
+from app.core.access import require_demo_data_access, require_demo_operator_access
 from app.db.session import get_db
 
 from .schemas import IncidentCreate, IncidentDetail, IncidentSummary
@@ -25,7 +25,7 @@ def incidents(db: Session = Depends(get_db)) -> list[IncidentSummary]:
     return list_incidents(db)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_demo_operator_access)])
 def create_incident(
     payload: IncidentCreate,
     response: Response,
