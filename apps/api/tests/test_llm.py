@@ -139,3 +139,35 @@ def test_build_investigation_prompt_includes_evidence() -> None:
     assert "retry webhook" in prompt
     assert "Card expired" in prompt
     assert "failed_invoice_count" in prompt
+
+
+def test_pricing_table_lookup() -> None:
+    from app.llm.pricing import get_pricing
+
+    pricing = get_pricing("gpt-4o-mini")
+    assert pricing.input_price_per_1m_tokens > 0
+    assert pricing.output_price_per_1m_tokens > 0
+
+
+def test_estimate_cost_usd() -> None:
+    from app.llm.pricing import estimate_cost_usd
+
+    cost = estimate_cost_usd(
+        prompt_tokens=1_000_000, completion_tokens=500_000, model="gpt-4o-mini"
+    )
+    assert cost > 0
+    # 1M input @ 0.15 + 0.5M output @ 0.60 = 0.15 + 0.30 = 0.45
+    assert round(cost, 2) == 0.45
+
+
+def test_tokenizer_returns_positive_count() -> None:
+    from app.llm.tokenizer import count_tokens
+
+    count = count_tokens("The quick brown fox jumps over the lazy dog.", model="gpt-4o-mini")
+    assert count > 0
+
+
+def test_tokenizer_empty_string_returns_zero() -> None:
+    from app.llm.tokenizer import count_tokens
+
+    assert count_tokens("") == 0

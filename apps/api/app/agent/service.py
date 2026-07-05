@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -184,8 +183,6 @@ def execute_investigation_run_with_session(
     finished_run.status = "succeeded"
     finished_run.error = None
     finished_run.final_report = report.model_dump(mode="json")
-    finished_run.token_estimate = estimate_token_count(finished_run.final_report)
-    finished_run.cost_estimate_usd = 0.0
     finished_run.updated_at = completed_at
 
     try:
@@ -269,6 +266,8 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
         trace_provider=run.trace_provider,
         trace_metadata=run.trace_metadata,
         token_estimate=run.token_estimate,
+        prompt_tokens=run.prompt_tokens,
+        completion_tokens=run.completion_tokens,
         cost_estimate_usd=run.cost_estimate_usd,
         input_payload=run.input_payload,
         final_report=InvestigationReport.model_validate(run.final_report)
@@ -393,11 +392,6 @@ def backfill_report_actions(session: Session, run_id: str) -> None:
 
     report = InvestigationReport.model_validate(run.final_report)
     propose_actions_for_report(session, run_id=run.id, report=report)
-
-
-def estimate_token_count(payload: dict[str, object]) -> int:
-    text = json.dumps(payload, sort_keys=True)
-    return max(1, len(text) // 4)
 
 
 def _finish_trace(

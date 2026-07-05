@@ -314,6 +314,8 @@ export type AgentRunDetail = {
   trace_provider: 'langfuse' | 'langsmith' | 'local' | null;
   trace_metadata: Record<string, unknown>;
   token_estimate: number;
+  prompt_tokens: number;
+  completion_tokens: number;
   cost_estimate_usd: number;
   input_payload: Record<string, unknown>;
   final_report: InvestigationReport | null;

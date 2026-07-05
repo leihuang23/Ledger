@@ -8,6 +8,7 @@ import httpx
 
 from app.llm.prompts import INVESTIGATION_SYSTEM_PROMPT
 from app.llm.schemas import LLMResponse, LLMUsage
+from app.llm.tokenizer import count_tokens
 
 
 class LLMClient(Protocol):
@@ -38,6 +39,8 @@ class NoopLLMClient:
         usage = LLMUsage(
             provider=self.provider,
             model=self.model,
+            prompt_tokens=count_tokens(prompt),
+            completion_tokens=count_tokens(response.root_cause),
             used_llm=False,
             fallback_reason="llm_provider=none",
         )

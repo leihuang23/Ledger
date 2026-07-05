@@ -19,6 +19,7 @@ from app.llm import (
     LLMClient,
     NoopLLMClient,
     build_investigation_prompt,
+    estimate_cost_usd,
 )
 from app.llm.schemas import LLMUsage
 from app.agent.tools import (
@@ -252,6 +253,17 @@ def _synthesize_report(
         "llm_used": llm_usage.used_llm,
         "llm_fallback_reason": llm_usage.fallback_reason,
     }
+    run.prompt_tokens = llm_usage.prompt_tokens
+    run.completion_tokens = llm_usage.completion_tokens
+    run.token_estimate = llm_usage.prompt_tokens + llm_usage.completion_tokens
+    if llm_usage.used_llm:
+        run.cost_estimate_usd = estimate_cost_usd(
+            prompt_tokens=llm_usage.prompt_tokens,
+            completion_tokens=llm_usage.completion_tokens,
+            model=llm_usage.model,
+        )
+    else:
+        run.cost_estimate_usd = 0.0
 
     tickets_by_account: dict[str, list[dict[str, Any]]] = {}
     for ticket in support_tickets["tickets"]:

@@ -264,6 +264,8 @@ class AgentRun(Base):
     input_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     final_report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_estimate_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     error: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)

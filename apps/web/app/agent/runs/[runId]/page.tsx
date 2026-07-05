@@ -110,6 +110,12 @@ function RunReport({
         <div>
           <span className="label">Estimated tokens</span>
           <strong>{formatCount(run.token_estimate)}</strong>
+          {run.prompt_tokens > 0 || run.completion_tokens > 0 ? (
+            <span className="token-breakdown">
+              {' '}
+              ({formatCount(run.prompt_tokens)} prompt / {formatCount(run.completion_tokens)} completion)
+            </span>
+          ) : null}
         </div>
         <div>
           <span className="label">Estimated cost</span>

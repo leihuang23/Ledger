@@ -74,6 +74,8 @@ class AgentRunDetail(BaseModel):
     trace_provider: str | None
     trace_metadata: dict[str, Any] = Field(default_factory=dict)
     token_estimate: int
+    prompt_tokens: int
+    completion_tokens: int
     cost_estimate_usd: float
     input_payload: dict[str, Any]
     final_report: InvestigationReport | None

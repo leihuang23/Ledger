@@ -92,6 +92,10 @@ def test_workflow_uses_llm_diagnosis_when_configured(
         assert "MRR drop" in (client.last_prompt or "")
         assert run.trace_metadata.get("llm_provider") == "fake"
         assert run.trace_metadata.get("llm_used") is True
+        assert run.prompt_tokens > 0
+        assert run.completion_tokens > 0
+        assert run.token_estimate == run.prompt_tokens + run.completion_tokens
+        assert run.cost_estimate_usd > 0
 
 
 def test_workflow_falls_back_when_llm_returns_disabled_response(
@@ -129,3 +133,4 @@ def test_workflow_falls_back_when_llm_returns_disabled_response(
 
         assert "retry webhook" in report.root_cause.lower()
         assert run.trace_metadata.get("llm_used") is True
+        assert run.prompt_tokens > 0
