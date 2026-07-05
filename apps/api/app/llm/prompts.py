@@ -20,6 +20,32 @@ Rules:
 - Confidence is high only when SQL evidence, a relevant document, and support tickets all align.
 - Next actions must be safe to draft; never claim a message was already sent.
 - If the evidence is insufficient to prove a specific cause, set confidence to low and say so in root_cause.
+
+Examples:
+
+Example 1 (strong evidence):
+{
+  "root_cause": "Billing retry webhook regression suppressed second charge attempts.",
+  "confidence": "high",
+  "next_actions": [
+    "Repair the retry webhook handler and replay failed retry jobs.",
+    "Draft an approval-gated customer email explaining the delayed retry.",
+    "Create a task to audit retry webhook logs for the affected window."
+  ],
+  "reasoning": "SQL evidence shows 6 failed invoices tied to retry webhook failures, the billing retry runbook matches the observed pattern, and support tickets cite missing retry attempts."
+}
+
+Example 2 (insufficient evidence):
+{
+  "root_cause": "MRR dropped after failed renewals, but the available evidence does not prove a specific operational root cause.",
+  "confidence": "low",
+  "next_actions": [
+    "Collect additional account, support, and product evidence before naming a root cause.",
+    "Review failed invoice rows and support tickets for affected accounts.",
+    "Keep any customer follow-up in approval-gated drafts."
+  ],
+  "reasoning": "Failed invoices are present but no matching runbook, support tickets, or product signals point to a single operational cause."
+}
 """
 
 

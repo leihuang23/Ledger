@@ -508,6 +508,7 @@ def diagnose_with_llm_or_fallback(
     doc_results: dict[str, Any],
     support_tickets: dict[str, Any],
 ) -> tuple[Diagnosis, LLMUsage]:
+    """Try LLM diagnosis first, then fall back to deterministic evidence matching."""
     prompt = build_investigation_prompt(
         incident=incident,
         revenue_metrics=revenue_metrics,
@@ -515,31 +516,53 @@ def diagnose_with_llm_or_fallback(
         doc_results=doc_results,
         support_tickets=support_tickets,
     )
+
+    llm_diagnosis, usage = _diagnose_with_llm(
+        llm_client=llm_client,
+        prompt=prompt,
+    )
+    if llm_diagnosis is not None:
+        return llm_diagnosis, usage
+
+    fallback_usage = usage.model_copy(
+        update={
+            "used_llm": usage.used_llm,
+            "fallback_reason": usage.fallback_reason or "deterministic_fallback",
+        }
+    ) if usage else LLMUsage(
+        provider=getattr(llm_client, "provider", "unknown"),
+        model=getattr(llm_client, "model", "unknown"),
+        used_llm=False,
+        fallback_reason="deterministic_fallback",
+    )
+    return _diagnose_from_evidence(
+        revenue_metrics=revenue_metrics,
+        account_details=account_details,
+        doc_results=doc_results,
+        support_tickets=support_tickets,
+    ), fallback_usage
+
+
+def _diagnose_with_llm(
+    *,
+    llm_client: LLMClient,
+    prompt: str,
+) -> tuple[Diagnosis | None, LLMUsage]:
+    """Return a Diagnosis from the LLM, or None when the response is unusable."""
     try:
         llm_response, usage = llm_client.complete(prompt)
     except Exception as exc:
-        usage = LLMUsage(
+        return None, LLMUsage(
             provider=getattr(llm_client, "provider", "unknown"),
             model=getattr(llm_client, "model", "unknown"),
             used_llm=False,
             fallback_reason=f"llm_error: {exc}",
         )
-        return _diagnose_from_evidence(
-            revenue_metrics=revenue_metrics,
-            account_details=account_details,
-            doc_results=doc_results,
-            support_tickets=support_tickets,
-        ), usage
 
     if not llm_response.root_cause or llm_response.root_cause.strip().lower().startswith(
         "llm is disabled"
     ):
-        return _diagnose_from_evidence(
-            revenue_metrics=revenue_metrics,
-            account_details=account_details,
-            doc_results=doc_results,
-            support_tickets=support_tickets,
-        ), usage
+        return None, usage
 
     diagnosis = Diagnosis(
         root_cause=llm_response.root_cause,
