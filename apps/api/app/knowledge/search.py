@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.cache import Cache
 from app.db.types import vector_literal
-from app.knowledge.embeddings import cosine_similarity, embed_text, tokenize
+from app.knowledge.embeddings import (
+    EmbeddingProvider,
+    cosine_similarity,
+    embed_text,
+    get_embedding_provider,
+    tokenize,
+)
 from app.models import KnowledgeDocument, KnowledgeDocumentChunk
 
 
@@ -32,11 +38,18 @@ def _search_knowledge_cache_key(query: str, limit: int) -> str:
 
 
 def search_knowledge(
-    session: Session, query: str, *, limit: int = 6
+    session: Session,
+    query: str,
+    *,
+    limit: int = 6,
+    provider: EmbeddingProvider | None = None,
 ) -> list[KnowledgeSearchResult]:
     query = query.strip()
     if not query:
         return []
+
+    if provider is None:
+        provider = get_embedding_provider()
 
     cache = Cache()
     cache_key = _search_knowledge_cache_key(query, limit)
@@ -53,7 +66,7 @@ def search_knowledge(
             for item in cached["results"]
         ]
 
-    query_embedding = embed_text(query)
+    query_embedding = provider.embed([query])[0]
     if session.get_bind().dialect.name == "postgresql":
         results = search_postgres(session, query, query_embedding, limit=limit)
     else:

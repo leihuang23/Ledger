@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     backend_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     allow_unsafe_bootstrap_seed: bool = False
     demo_operator_token: str | None = None
-    embedding_provider: Literal["local"] = "local"
+    embedding_provider: Literal["local", "openai"] = "local"
     embedding_model: Literal["local-hashing-v1"] = "local-hashing-v1"
+    openai_embedding_model: str = "text-embedding-3-small"
     document_ingest_token: str | None = None
     eval_run_token: str | None = None
     observability_provider: Literal["auto", "local", "langfuse", "langsmith"] = "auto"

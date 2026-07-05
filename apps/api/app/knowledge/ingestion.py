@@ -13,7 +13,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.knowledge.embeddings import embed_text, tokenize
+from app.knowledge.embeddings import (
+    EmbeddingProvider,
+    LocalHashingEmbeddings,
+    get_embedding_provider,
+    tokenize,
+)
 from app.models import KnowledgeDocument, KnowledgeDocumentChunk
 
 DOCS_DIR = Path(__file__).resolve().parent / "docs"
@@ -209,15 +214,22 @@ def builtin_documents() -> list[BuiltinDocument]:
 
 
 def ingest_builtin_knowledge_documents(
-    session: Session, *, force: bool = True, commit: bool = True
+    session: Session,
+    *,
+    force: bool = True,
+    commit: bool = True,
+    provider: EmbeddingProvider | None = None,
 ) -> KnowledgeIngestionResult:
     documents = builtin_documents()
     if not force and builtin_documents_are_current(session, documents):
         return current_ingestion_result(session)
 
+    if provider is None:
+        provider = get_embedding_provider()
+
     prune_removed_builtin_documents(session, documents)
     for document in documents:
-        ingest_builtin_document(session, document)
+        ingest_builtin_document(session, document, provider=provider)
 
     session.flush()
     if commit:
@@ -296,7 +308,9 @@ def prune_removed_builtin_documents(
     session.execute(delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(stale_ids)))
 
 
-def ingest_markdown_file(session: Session, path: Path) -> None:
+def ingest_markdown_file(
+    session: Session, path: Path, *, provider: EmbeddingProvider | None = None
+) -> None:
     markdown = path.read_text(encoding="utf-8")
     metadata, chunks = chunk_markdown(markdown)
     source_id = required_metadata(metadata, "source_id", path)
@@ -310,10 +324,16 @@ def ingest_markdown_file(session: Session, path: Path) -> None:
         markdown=markdown,
         metadata=metadata,
         chunks=chunks,
+        provider=provider,
     )
 
 
-def ingest_builtin_document(session: Session, document: BuiltinDocument) -> None:
+def ingest_builtin_document(
+    session: Session,
+    document: BuiltinDocument,
+    *,
+    provider: EmbeddingProvider | None = None,
+) -> None:
     _metadata, chunks = chunk_markdown(document.markdown)
     ingest_markdown_document(
         session,
@@ -323,6 +343,7 @@ def ingest_builtin_document(session: Session, document: BuiltinDocument) -> None
         markdown=document.markdown,
         metadata=document.metadata,
         chunks=chunks,
+        provider=provider,
     )
 
 
@@ -335,7 +356,11 @@ def ingest_markdown_document(
     markdown: str,
     metadata: dict[str, Any],
     chunks: list[MarkdownChunk],
+    provider: EmbeddingProvider | None = None,
 ) -> None:
+    if provider is None:
+        provider = LocalHashingEmbeddings()
+
     title = required_metadata(metadata, "title", source_path)
 
     document = session.get(KnowledgeDocument, source_id)
@@ -370,7 +395,12 @@ def ingest_markdown_document(
     )
     session.flush()
 
-    for chunk in chunks:
+    chunk_texts = [
+        f"{title}\n{chunk.heading_path}\n{chunk.content}" for chunk in chunks
+    ]
+    embeddings = provider.embed(chunk_texts) if chunk_texts else []
+
+    for chunk, embedding in zip(chunks, embeddings, strict=True):
         chunk_id = f"{source_id}#chunk-{chunk.chunk_index:03d}"
         citation_metadata = {
             "source_id": source_id,
@@ -391,7 +421,7 @@ def ingest_markdown_document(
                 heading_path=chunk.heading_path,
                 content=chunk.content,
                 token_count=chunk.token_count,
-                embedding=embed_text(f"{title}\n{chunk.heading_path}\n{chunk.content}"),
+                embedding=embedding,
                 citation_metadata=citation_metadata,
                 created_at=KNOWLEDGE_INGESTED_AT,
             )
