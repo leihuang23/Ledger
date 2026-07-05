@@ -9,9 +9,12 @@ from sqlalchemy.engine import Engine
 
 from app.agent.service import abandon_orphaned_active_runs
 from app.db.session import SessionLocal, engine
+from app.logging_config import configure_logging, get_logger
 from app.seed import ensure_seeded_if_empty
 
 BOOTSTRAP_LOCK_ID = 0x4F707341
+
+logger = get_logger(__name__)
 
 
 @contextmanager
@@ -43,17 +46,24 @@ def run_migrations() -> None:
 
 
 def run_startup_bootstrap() -> None:
+    configure_logging()
     with bootstrap_lock(engine):
         run_migrations()
         with SessionLocal() as session:
             result = ensure_seeded_if_empty(session)
             if result:
-                print(f"Seeded empty database (fingerprint={result.fingerprint})")
+                logger.info(
+                    "Seeded empty database",
+                    extra={"fingerprint": result.fingerprint},
+                )
             else:
-                print("Seed data already present; skipping reseed")
+                logger.info("Seed data already present; skipping reseed")
             abandoned_count = abandon_orphaned_active_runs(session)
             if abandoned_count:
-                print(f"Marked {abandoned_count} stale agent run(s) failed")
+                logger.info(
+                    "Marked stale agent runs failed",
+                    extra={"abandoned_count": abandoned_count},
+                )
 
 
 def main() -> None:

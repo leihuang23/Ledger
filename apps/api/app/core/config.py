@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/0"
 
+    # Logging configuration
+    log_level: str = "INFO"
+    log_format: Literal["json", "text"] = "text"
+
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:

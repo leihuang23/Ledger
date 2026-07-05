@@ -22,10 +22,13 @@ from app.cache import Cache
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.llm import AnthropicClient, LLMClient, NoopLLMClient, OpenAIClient
+from app.logging_config import get_logger
 from app.models import AgentRun, AgentRunStep, Incident
 
 ACTIVE_RUN_STALE_AFTER = timedelta(minutes=10)
 ACTIVE_RUN_STATUSES = ("queued", "running")
+
+logger = get_logger(__name__)
 
 
 def build_llm_client_from_settings() -> LLMClient:
@@ -154,6 +157,10 @@ def execute_investigation_run_with_session(
 
     now = utcnow_naive()
     trace = start_agent_trace(run_id=run.id, incident_id=run.incident_id)
+    logger.info(
+        "Starting investigation run",
+        extra={"run_id": run.id, "incident_id": run.incident_id},
+    )
     claim = session.execute(
         update(AgentRun)
         .where(AgentRun.id == run.id, AgentRun.status == "queued")
@@ -172,6 +179,10 @@ def execute_investigation_run_with_session(
     if claim.rowcount != 1:
         session.rollback()
         _finish_trace(trace, error="Agent run was already claimed.")
+        logger.warning(
+            "Agent run was already claimed",
+            extra={"run_id": run.id},
+        )
         return get_run_detail(session, run_id)
     session.commit()
     session.refresh(run)
@@ -195,6 +206,14 @@ def execute_investigation_run_with_session(
         failed_run.updated_at = completed_at
         session.commit()
         _invalidate_run_detail_cache(failed_run.id)
+        logger.error(
+            "Investigation run failed",
+            extra={
+                "run_id": failed_run.id,
+                "incident_id": failed_run.incident_id,
+                "error": failed_run.error,
+            },
+        )
         return get_run_detail(session, failed_run.id)
 
     completed_at = utcnow_naive()
@@ -231,6 +250,14 @@ def execute_investigation_run_with_session(
         _finish_trace(trace, outputs=failed_run.final_report, error=failed_run.error)
         session.commit()
         _invalidate_run_detail_cache(failed_run.id)
+        logger.error(
+            "Action proposal failed",
+            extra={
+                "run_id": failed_run.id,
+                "incident_id": failed_run.incident_id,
+                "error": failed_run.error,
+            },
+        )
         return get_run_detail(session, failed_run.id)
 
     finished_run = session.get(AgentRun, run.id)
@@ -243,6 +270,14 @@ def execute_investigation_run_with_session(
     _finish_trace(trace, outputs=finished_run.final_report)
     session.commit()
     _invalidate_run_detail_cache(finished_run.id)
+    logger.info(
+        "Investigation run succeeded",
+        extra={
+            "run_id": finished_run.id,
+            "incident_id": finished_run.incident_id,
+            "trace_id": finished_run.trace_id,
+        },
+    )
 
     return get_run_detail(session, finished_run.id)
 
