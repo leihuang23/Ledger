@@ -92,6 +92,78 @@ export type AffectedAccount = {
   source_scenario: string | null;
 };
 
+export type AccountSubscription = {
+  id: string;
+  plan: string;
+  status: string;
+  mrr_cents: number;
+  seats: number;
+  started_at: string;
+  canceled_at: string | null;
+  cancellation_reason: string | null;
+};
+
+export type AccountInvoice = {
+  id: string;
+  invoice_date: string;
+  due_date: string;
+  amount_cents: number;
+  status: string;
+  failure_reason: string | null;
+  paid_at: string | null;
+  source_scenario: string | null;
+};
+
+export type AccountInvoiceSummary = {
+  total_invoices: number;
+  paid_invoices: number;
+  failed_invoices: number;
+  void_invoices: number;
+  failed_amount_cents: number;
+};
+
+export type AccountTicket = {
+  id: string;
+  created_at: string;
+  status: string;
+  priority: string;
+  category: string;
+  subject: string;
+  sentiment: string;
+  source_scenario: string | null;
+};
+
+export type AccountProductEventSummary = {
+  event_name: string;
+  event_count: number;
+  latest_event_at: string;
+  source_scenario: string | null;
+};
+
+export type AccountDetail = {
+  id: string;
+  name: string;
+  segment: string;
+  industry: string;
+  region: string;
+  health_score: number;
+  source_scenario: string | null;
+  is_active: boolean;
+  subscription: AccountSubscription | null;
+  users: {
+    id: string;
+    email: string;
+    full_name: string;
+    role: string;
+    last_seen_at: string | null;
+    is_active: boolean;
+  }[];
+  invoice_summary: AccountInvoiceSummary;
+  recent_invoices: AccountInvoice[];
+  recent_tickets: AccountTicket[];
+  product_event_summary: AccountProductEventSummary[];
+};
+
 export type SupportSignal = {
   ticket_id: string;
   account_id: string;
@@ -168,6 +240,10 @@ export type RevenueAnomaliesResult =
 
 export type IncidentDetailResult =
   | { ok: true; data: IncidentDetail }
+  | { ok: false; error: string };
+
+export type AccountDetailResult =
+  | { ok: true; data: AccountDetail }
   | { ok: false; error: string };
 
 export type IncidentListResult =
@@ -594,6 +670,31 @@ export async function getIncident(incidentId: string): Promise<IncidentDetailRes
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Incident endpoint unavailable',
+    };
+  }
+}
+
+export async function getAccount(accountId: string): Promise<AccountDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/accounts/${encodeURIComponent(accountId)}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Account endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AccountDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Account endpoint unavailable',
     };
   }
 }
