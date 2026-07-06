@@ -3,10 +3,12 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.access import require_demo_data_access
 from app.core.config import get_settings
+from app.core.errors import error_response
 from app.core.limiter import limiter
 from app.db.session import get_db
 from app.evals.runner import list_latest_eval_results, run_eval_suite
@@ -49,7 +51,12 @@ def run_evals(
     response: Response,
     db: Session = Depends(get_db),
 ) -> EvalRunSummary:
-    summary = run_eval_suite(db)
+    try:
+        summary = run_eval_suite(db)
+    except LookupError as exc:
+        return error_response("not_found", str(exc), 404)
+    except IntegrityError as exc:
+        return error_response("conflict", str(exc), 409)
     response.status_code = status.HTTP_201_CREATED
     return summary
 

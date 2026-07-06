@@ -3,11 +3,13 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.bootstrap import bootstrap_lock
 from app.core.access import require_demo_data_access
 from app.core.config import get_settings
+from app.core.errors import error_response
 from app.core.limiter import limiter
 from app.db.session import get_db
 
@@ -56,8 +58,13 @@ def ingest_documents(
     request: Request,
     db: Session = Depends(get_db),
 ) -> KnowledgeIngestionResponse:
-    with bootstrap_lock(db.get_bind()):
-        result = ingest_builtin_knowledge_documents(db, force=False)
+    try:
+        with bootstrap_lock(db.get_bind()):
+            result = ingest_builtin_knowledge_documents(db, force=False)
+    except LookupError as exc:
+        return error_response("not_found", str(exc), 404)
+    except IntegrityError as exc:
+        return error_response("conflict", str(exc), 409)
     return KnowledgeIngestionResponse(
         document_count=result.document_count,
         chunk_count=result.chunk_count,

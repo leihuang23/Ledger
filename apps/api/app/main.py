@@ -1,8 +1,8 @@
 import uuid
-from contextvars import ContextVar
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -10,16 +10,21 @@ from app.accounts.router import router as accounts_router
 from app.agent.router import router as agent_router
 from app.approvals.router import approvals_router, mock_actions_router
 from app.core.config import get_settings
+from app.core.errors import error_response
 from app.core.limiter import limiter
 from app.evals.router import router as evals_router
 from app.health.router import router as health_router
 from app.incidents.router import router as incidents_router
 from app.knowledge.router import router as knowledge_router
-from app.logging_config import configure_logging
+from app.logging_config import configure_logging, get_logger, request_id_context
 from app.metrics.router import router as metrics_router
 from app.support.router import router as support_router
 
-request_id_context: ContextVar[str] = ContextVar("request_id")
+logger = get_logger("app.main")
+
+# Environments where the error envelope may include exception detail to help
+# local debugging. Production-like envs get a generic message only.
+_DETAIL_ENVS = frozenset({"local", "test", "development", "demo"})
 
 
 def create_app() -> FastAPI:
@@ -47,6 +52,27 @@ def create_app() -> FastAPI:
             media_type="application/json",
             headers=headers,
         )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        request_id = request_id_context.get("-")
+        logger.error(
+            "Unhandled exception in %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+            exc_info=True,
+            extra={"request_id": request_id},
+        )
+        env = get_settings().app_env
+        message = (
+            str(exc)
+            if env in _DETAIL_ENVS
+            else "An internal error occurred."
+        )
+        return error_response("internal_error", message, 500)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):

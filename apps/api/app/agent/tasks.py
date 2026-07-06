@@ -4,8 +4,14 @@ from app.celery_app import celery_app
 from app.db.session import SessionLocal
 
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=10)
-def investigate_incident(self, run_id: str) -> dict[str, object]:
+@celery_app.task
+def investigate_incident(run_id: str) -> dict[str, object]:
+    """Run an investigation synchronously within a Celery worker.
+
+    Not retryable: a partial run corrupts agent state, so fail-fast is safer
+    than a blind retry. The Celery ``task_time_limit`` / ``task_soft_time_limit``
+    guard against hangs.
+    """
     from app.agent.service import execute_investigation_run_with_session
 
     with SessionLocal() as session:

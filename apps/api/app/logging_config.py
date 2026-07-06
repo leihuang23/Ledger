@@ -3,9 +3,27 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from contextvars import ContextVar
 from typing import Any
 
 from app.core.config import Settings
+
+# Request-scoped context var set by the ASGI middleware in main.py.
+# Defined here (rather than in main.py) so RequestIdFilter can import it
+# without creating a circular dependency.
+request_id_context: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+class RequestIdFilter(logging.Filter):
+    """Copy the current request_id_context onto every log record.
+
+    This lets JsonFormatter emit ``request_id`` for all logs without callers
+    passing it manually via ``extra=``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_context.get()
+        return True
 
 
 class JsonFormatter(logging.Formatter):
@@ -45,6 +63,7 @@ def configure_logging(settings: Settings | None = None) -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+    handler.addFilter(RequestIdFilter())
 
     root = logging.getLogger()
     root.setLevel(level)

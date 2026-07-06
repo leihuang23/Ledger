@@ -17,6 +17,37 @@ DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 
 _LOCAL_CACHE_VALUES: dict[str, tuple[float, str]] = {}
 
+# Module-level singleton: lazily initialized on first use, then reused across
+# all Cache() instances so we don't pay a ping() round-trip on every call.
+_redis_client: "redis.Redis | _LocalMemoryCache | None" = None
+
+
+def _get_redis_client() -> "redis.Redis | _LocalMemoryCache":
+    """Return the shared Redis client, initializing it once on first call.
+
+    If Redis is unreachable, falls back to ``_LocalMemoryCache`` and caches
+    that decision so subsequent callers don't retry the 2s connect timeout.
+    """
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    url = get_settings().redis_url
+    try:
+        client = redis.Redis.from_url(
+            url, decode_responses=True, socket_connect_timeout=2
+        )
+        client.ping()
+        _redis_client = client
+    except Exception:
+        _redis_client = _LocalMemoryCache()
+    return _redis_client
+
+
+def _reset_redis_client() -> None:
+    """Clear the shared client (for deterministic test isolation)."""
+    global _redis_client
+    _redis_client = None
+
 
 class _LocalMemoryCache:
     """Small Redis-like fallback for local tests and Redis outages."""
@@ -57,14 +88,16 @@ class Cache:
     """
 
     def __init__(self, url: str | None = None) -> None:
-        url = url or get_settings().redis_url
-        try:
-            self._client: redis.Redis | _LocalMemoryCache = redis.Redis.from_url(
-                url, decode_responses=True, socket_connect_timeout=2
-            )
-            self._client.ping()
-        except Exception:
-            self._client = _LocalMemoryCache()
+        if url is not None:
+            try:
+                self._client: redis.Redis | _LocalMemoryCache = redis.Redis.from_url(
+                    url, decode_responses=True, socket_connect_timeout=2
+                )
+                self._client.ping()
+            except Exception:
+                self._client = _LocalMemoryCache()
+        else:
+            self._client = _get_redis_client()
 
     def get(self, key: str) -> dict[str, object] | None:
         try:
