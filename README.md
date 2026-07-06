@@ -33,9 +33,9 @@ Do not advance a readiness label by editing this file. Advance it by adding impl
 
 ## Structure
 
-- `apps/api` - FastAPI app with Pydantic v2 settings, SQLAlchemy 2 engine/session setup, Alembic, seeded SaaS data, metrics, incidents, knowledge search, and pytest coverage.
+- `apps/api` - FastAPI app with Pydantic v2 settings, SQLAlchemy 2 engine/session setup, Alembic, seeded SaaS data, metrics, incidents, knowledge search, Celery task worker entrypoint, and pytest coverage.
 - `apps/web` - Next.js App Router UI for the operational dashboard, incident detail flow, and knowledge search.
-- `docker-compose.yml` - Local Postgres, Redis, API, and web services.
+- `docker-compose.yml` - Local Postgres, Redis, API, worker, and web services with health checks.
 - `prd.md` - Product brief and success criteria.
 - `AGENTS.md` - Project guardrails for future agent work.
 
@@ -54,6 +54,10 @@ Start the stack:
 ```bash
 docker compose up --build
 ```
+
+`docker compose up` boots Postgres, Redis, the API, a Celery worker, and the web
+frontend. The API container runs migrations and seeds the demo dataset on first
+startup. Use `docker compose ps` to verify all services report healthy.
 
 Useful URLs:
 
@@ -75,6 +79,14 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 uvicorn app.main:app --reload
+```
+
+Run a local Celery worker for async investigation runs (the API queues runs to
+Redis when `run_inline` is false):
+
+```bash
+cd apps/api
+celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
 ```
 
 Run Alembic migrations when migrations exist:
@@ -108,13 +120,46 @@ The HTTP refresh endpoint `POST /documents/ingest` is disabled unless
 `X-Document-Ingest-Token: <token>`. Prefer the CLI/bootstrap path for normal
 local setup.
 
-The local embedding path is deterministic and does not require external
+The default embedding path is deterministic and does not require external
 credentials:
 
 - `EMBEDDING_PROVIDER=local`
 - `EMBEDDING_MODEL=local-hashing-v1`
+
+To use OpenAI embeddings instead, set:
+
+- `EMBEDDING_PROVIDER=openai`
+- `OPENAI_EMBEDDING_MODEL=text-embedding-3-small`
+- `OPENAI_API_KEY=sk-...`
+
+OpenAI embeddings are projected to the same 96-dimensional store used by the
+local hashing provider, so no schema migration is required. If `EMBEDDING_PROVIDER`
+is set to `openai` without an `OPENAI_API_KEY`, the app falls back to local
+hashing with a warning.
+
 - `DOCUMENT_INGEST_TOKEN=` optional token for the mutating HTTP ingest endpoint
 - `EVAL_RUN_TOKEN=` optional token that enables the mutating HTTP eval runner
+
+## LLM Configuration
+
+Agent diagnosis can use an LLM provider or fall back to a deterministic
+evidence matcher. By default no external LLM is required:
+
+- `LLM_PROVIDER=none` uses the deterministic classifier and reports zero cost.
+
+To enable LLM-backed root-cause synthesis, set:
+
+- `LLM_PROVIDER=openai` or `anthropic`
+- `LLM_MODEL=gpt-4o-mini` (OpenAI) or `claude-3-5-haiku-latest` (Anthropic)
+- `OPENAI_API_KEY=` or `ANTHROPIC_API_KEY=`
+- `LLM_TEMPERATURE=0.1`
+- `LLM_MAX_TOKENS=1024`
+- `LLM_TIMEOUT_SECONDS=30`
+
+When an LLM is configured, the agent records provider, model, latency,
+prompt/completion tokens, and a cost estimate on each run. If the LLM call
+fails or returns unusable output, the run falls back to the deterministic
+classifier and records the fallback reason in `trace_metadata`.
 
 ## Observability And Tracing
 
@@ -246,6 +291,17 @@ npm run lint
 npm run build
 ```
 
+Run the Playwright E2E test against a started Docker stack:
+
+```bash
+cd apps/web
+npm run test:e2e
+```
+
+The E2E suite expects the stack from `docker compose up` to be running on the
+default ports (API on 8000, web on 3000). In CI the E2E workflow starts the
+stack automatically.
+
 Quick API checks after `docker compose up --build`:
 
 ```bash
@@ -263,9 +319,10 @@ curl http://localhost:8000/evals/results
 
 Before asking for external review, capture the results of:
 
-- Backend tests.
+- Backend tests and the eval suite.
 - Frontend tests, typecheck/lint, and production build.
 - Docker boot from a fresh or intentionally reset local database.
+- Playwright E2E test (`npm run test:e2e`) against the Docker stack.
 - Browser inspection of the dashboard, incident detail flow, and knowledge search.
 - Eval report inspection, including one passing trace and one edge-case scenario trace.
 - Any known gaps against `prd.md`.
@@ -275,7 +332,8 @@ Before asking for external review, capture the results of:
 Inspect the project as a vertical product slice first. Promote it to full MVP inspection only after the PRD success criteria are implemented and verified.
 
 1. Confirm the stack boots from a clean local database.
-   - `docker compose up --build` should start Postgres, Redis, API, and web.
+   - `docker compose up --build` should start Postgres, Redis, API, worker, and web.
+   - All services with health checks should report healthy in `docker compose ps`.
    - The API startup should run migrations and seed the demo data automatically.
    - `/ready` should report that database connectivity is working.
 

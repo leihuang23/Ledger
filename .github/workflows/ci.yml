@@ -36,6 +36,16 @@ jobs:
         ports:
           - 5432:5432
 
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -55,12 +65,20 @@ jobs:
       - name: Run database migrations
         env:
           DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent
+          REDIS_URL: redis://localhost:6379/0
         run: alembic upgrade head
 
       - name: Run API tests
         env:
           DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent
+          REDIS_URL: redis://localhost:6379/0
         run: pytest
+
+      - name: Run eval suite
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test_ops_agent
+          REDIS_URL: redis://localhost:6379/0
+        run: python -m app.evals.runner --json
 
   web-build:
     name: web-build
@@ -91,3 +109,69 @@ jobs:
 
       - name: Build web app
         run: npm run build
+
+  docker-smoke:
+    name: docker-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and start services
+        run: docker compose up -d --build
+
+      - name: Wait for health checks
+        run: |
+          for i in $(seq 1 60); do
+            unhealthy=$(docker compose ps --format json | jq -r 'select(.Health == "unhealthy") | .Name' 2>/dev/null)
+            if [ -n "$unhealthy" ]; then
+              echo "Unhealthy containers detected: $unhealthy"
+              docker compose ps
+              exit 1
+            fi
+            healthy_count=$(docker compose ps --format json | jq -r 'select(.Health == "healthy") | .Name' 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$healthy_count" -ge 4 ]; then
+              echo "All expected services are healthy"
+              break
+            fi
+            echo "Waiting for services... ($i/60)"
+            sleep 5
+          done
+          docker compose ps
+
+      - name: Verify API health endpoint
+        run: |
+          curl -s --retry 30 --retry-delay 2 --retry-connrefused http://localhost:8000/health
+
+      - name: Verify web is reachable
+        run: |
+          curl -s --retry 30 --retry-delay 2 --retry-connrefused http://localhost:3000 | head -c 200
+
+      - name: Queue investigation via worker
+        run: |
+          set -e
+          response=$(curl -s -X POST http://localhost:8000/agent/investigations \
+            -H "Content-Type: application/json" \
+            -d '{"incident_id":"inc_rev_mrr_wow_drop_20260603","run_inline":false}')
+          echo "Queued investigation: $response"
+          run_id=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])")
+          for i in $(seq 1 30); do
+            status=$(curl -s "http://localhost:8000/agent/runs/$run_id" | python3 -c "import sys, json; print(json.load(sys.stdin)['status'])")
+            echo "Run status: $status"
+            if [ "$status" = "succeeded" ] || [ "$status" = "failed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$status" != "succeeded" ]; then
+            echo "Investigation did not succeed: $status"
+            docker compose logs worker --tail 100
+            exit 1
+          fi
+
+      - name: Print compose logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
