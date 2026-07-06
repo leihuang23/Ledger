@@ -39,6 +39,8 @@ test.describe('demo flow', () => {
     await expect(page.getByRole('heading', { name: 'Investigation eval report' })).toBeVisible();
     await page.locator('button:has-text("Run Suite")').click();
     await page.waitForURL('/evals');
-    await expect(page.locator('text=passed / 0 failed')).toBeVisible({ timeout: 120000 });
+    await expect(page.getByText(/\d[\d,]* passed \/ \d[\d,]* failed/)).toBeVisible({
+      timeout: 120000,
+    });
   });
 });

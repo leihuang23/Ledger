@@ -8,7 +8,7 @@ test.describe('failure flow', () => {
     //    incident (6th scenario). Its title is distinct from the deterministic
     //    scenarios, so we can target it directly.
     await page.goto('/incidents');
-    await expect(page.getByRole('heading', { name: 'Incidents' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Incidents', exact: true })).toBeVisible();
 
     const ambiguousIncident = page.getByRole('link', {
       name: 'Paid MRR dropped with mixed renewal signals across accounts',
