@@ -19,9 +19,7 @@ def build_limiter() -> Limiter:
         redis_client.ping()
         storage_uri = settings.redis_url
     except Exception:
-        from limits.storage import MemoryStorage
-
-        storage_uri = MemoryStorage()
+        storage_uri = "memory://"
 
     return Limiter(
         key_func=get_remote_address,

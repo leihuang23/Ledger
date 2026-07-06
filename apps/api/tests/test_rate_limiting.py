@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from app.core.limiter import build_limiter
 from app.main import create_app
 
 
@@ -46,3 +47,23 @@ def test_app_includes_rate_limit_middleware() -> None:
     app = create_app()
     middleware_classes = {m.cls.__name__ for m in app.user_middleware}
     assert "SlowAPIMiddleware" in middleware_classes
+
+
+def test_build_limiter_falls_back_to_memory_when_redis_is_unavailable(
+    monkeypatch,
+) -> None:
+    class UnavailableRedis:
+        @classmethod
+        def from_url(cls, *args, **kwargs):
+            return cls()
+
+        def ping(self) -> None:
+            raise OSError("redis unavailable")
+
+    import redis
+
+    monkeypatch.setattr(redis.Redis, "from_url", UnavailableRedis.from_url)
+
+    limiter = build_limiter()
+
+    assert limiter._storage.__class__.__name__ == "MemoryStorage"

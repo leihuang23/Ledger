@@ -43,6 +43,22 @@ def test_cache_idempotency_round_trip(cache: Cache) -> None:
     assert cache.get_idempotency_value(key) == "run_123"
 
 
+def test_cache_uses_shared_memory_fallback_when_redis_is_unavailable(
+    monkeypatch,
+) -> None:
+    def raise_connection_error(*args, **kwargs):
+        raise OSError("redis unavailable")
+
+    import redis
+
+    monkeypatch.setattr(redis.Redis, "from_url", raise_connection_error)
+    key = f"test:memory-fallback:{uuid.uuid4()}"
+
+    Cache().set(key, {"value": 99}, ttl_seconds=10)
+
+    assert Cache().get(key) == {"value": 99}
+
+
 def test_cache_result_decorator_uses_cache(cache: Cache) -> None:
     call_count = 0
     key = f"test:decorator:{uuid.uuid4()}"
