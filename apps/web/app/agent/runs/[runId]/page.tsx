@@ -185,11 +185,22 @@ function RunReport({
                 <tbody>
                   {report.affected_accounts.map((account) => (
                     <tr key={account.account_id}>
-                      <td>{account.account_name}</td>
+                      <td>
+                        <Link href={`/accounts/${account.account_id}`}>
+                          {account.account_name}
+                        </Link>
+                      </td>
                       <td>{account.segment}</td>
                       <td>{formatMoney(account.failed_invoice_cents)}</td>
                       <td>{account.failed_invoice_ids.join(', ')}</td>
-                      <td>{account.ticket_ids.join(', ')}</td>
+                      <td>
+                        {account.ticket_ids.map((ticketId, index) => (
+                          <span key={ticketId}>
+                            {index > 0 ? ', ' : ''}
+                            <Link href={`/support/tickets/${ticketId}`}>{ticketId}</Link>
+                          </span>
+                        ))}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -368,28 +379,32 @@ function EvidencePanel({ evidence }: { evidence: ReportEvidence[] }) {
         <h2>Cited evidence</h2>
         <span>{formatCount(evidence.length)} citations</span>
       </div>
-      <div className="evidence-stack">
-        {evidence.map((item) => (
-          <article className="evidence-item" key={`${item.kind}-${item.reference_id}`}>
-            <div>
-              <span className={`evidence-kind evidence-${item.kind}`}>{item.kind}</span>
-              <h3>{item.title}</h3>
-              <p>{item.summary}</p>
-            </div>
-            {item.source_query ? <pre>{item.source_query}</pre> : null}
-            <dl className="citation-grid compact-citation">
+      {evidence.length > 0 ? (
+        <div className="evidence-stack">
+          {evidence.map((item) => (
+            <article className="evidence-item" key={`${item.kind}-${item.reference_id}`}>
               <div>
-                <dt>Reference</dt>
-                <dd>{item.reference_id}</dd>
+                <span className={`evidence-kind evidence-${item.kind}`}>{item.kind}</span>
+                <h3>{item.title}</h3>
+                <p>{item.summary}</p>
               </div>
-              <div>
-                <dt>Citation</dt>
-                <dd>{citationLabel(item)}</dd>
-              </div>
-            </dl>
-          </article>
-        ))}
-      </div>
+              {item.source_query ? <pre>{item.source_query}</pre> : null}
+              <dl className="citation-grid compact-citation">
+                <div>
+                  <dt>Reference</dt>
+                  <dd>{item.reference_id}</dd>
+                </div>
+                <div>
+                  <dt>Citation</dt>
+                  <dd>{citationLabel(item)}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="panel-message">No cited evidence recorded for this run.</div>
+      )}
     </div>
   );
 }

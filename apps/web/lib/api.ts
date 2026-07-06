@@ -185,6 +185,22 @@ export type AccountDetail = {
   product_event_summary: AccountProductEventSummary[];
 };
 
+export type AccountListItem = {
+  id: string;
+  name: string;
+  segment: string;
+  industry: string;
+  region: string;
+  health_score: number;
+  source_scenario: string | null;
+  is_active: boolean;
+};
+
+export type AccountList = {
+  total: number;
+  accounts: AccountListItem[];
+};
+
 export type SupportSignal = {
   ticket_id: string;
   account_id: string;
@@ -265,6 +281,10 @@ export type IncidentDetailResult =
 
 export type AccountDetailResult =
   | { ok: true; data: AccountDetail }
+  | { ok: false; error: string };
+
+export type AccountListResult =
+  | { ok: true; data: AccountList }
   | { ok: false; error: string };
 
 export type IncidentListResult =
@@ -731,6 +751,31 @@ export async function getAccount(accountId: string): Promise<AccountDetailResult
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Account endpoint unavailable',
+    };
+  }
+}
+
+export async function listAccounts(): Promise<AccountListResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/accounts`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Accounts endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AccountList,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Accounts endpoint unavailable',
     };
   }
 }

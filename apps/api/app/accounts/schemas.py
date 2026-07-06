@@ -5,6 +5,22 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+class AccountListItem(BaseModel):
+    id: str
+    name: str
+    segment: str
+    industry: str
+    region: str
+    health_score: int
+    source_scenario: str | None
+    is_active: bool
+
+
+class AccountList(BaseModel):
+    total: int
+    accounts: list[AccountListItem]
+
+
 class AccountUserRead(BaseModel):
     id: str
     email: str

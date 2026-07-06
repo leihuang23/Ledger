@@ -41,6 +41,41 @@ select {
   font: inherit;
 }
 
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--foreground);
+  color: var(--panel);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  left: 12px;
+  top: 12px;
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+#main-content:focus {
+  outline: none;
+}
+
 .global-nav {
   position: sticky;
   top: 0;
@@ -90,6 +125,13 @@ select {
 .global-nav-list a:hover {
   background: var(--panel-soft);
   color: var(--foreground);
+}
+
+.global-nav-list a.nav-link-active,
+.global-nav-list a[aria-current='page'] {
+  background: var(--panel-soft);
+  color: var(--foreground);
+  box-shadow: inset 0 -2px 0 var(--blue);
 }
 
 .dashboard-shell {

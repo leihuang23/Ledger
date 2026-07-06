@@ -155,7 +155,11 @@ export default async function IncidentPage({ params, searchParams }: IncidentPag
               <tbody>
                 {incident.affected_accounts.map((account) => (
                   <tr key={account.account_id}>
-                    <td>{account.account_name}</td>
+                    <td>
+                      <Link href={`/accounts/${account.account_id}`}>
+                        {account.account_name}
+                      </Link>
+                    </td>
                     <td>{account.segment}</td>
                     <td>{formatMoney(account.failed_invoice_cents)}</td>
                     <td>{account.health_score}</td>
@@ -174,9 +178,12 @@ export default async function IncidentPage({ params, searchParams }: IncidentPag
           <div className="signal-stack">
             {incident.support_signals.slice(0, 6).map((ticket) => (
               <div className="signal-row" key={ticket.ticket_id}>
-                <strong>{ticket.subject}</strong>
+                <strong>
+                  <Link href={`/support/tickets/${ticket.ticket_id}`}>{ticket.subject}</Link>
+                </strong>
                 <span>
-                  {ticket.account_name} / {ticket.priority} / {ticket.status}
+                  <Link href={`/accounts/${ticket.account_id}`}>{ticket.account_name}</Link>{' '}
+                  / {ticket.priority} / {ticket.status}
                 </span>
               </div>
             ))}

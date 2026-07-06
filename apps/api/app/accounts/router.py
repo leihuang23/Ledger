@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.accounts.schemas import AccountDetailRead
-from app.accounts.service import get_account_detail
+from app.accounts.schemas import AccountDetailRead, AccountList
+from app.accounts.service import get_account_detail, list_accounts
 from app.core.access import require_demo_data_access
 from app.db.session import get_db
 
@@ -13,6 +13,11 @@ router = APIRouter(
     tags=["accounts"],
     dependencies=[Depends(require_demo_data_access)],
 )
+
+
+@router.get("")
+def list_accounts_endpoint(db: Session = Depends(get_db)) -> AccountList:
+    return list_accounts(db)
 
 
 @router.get("/{account_id}")

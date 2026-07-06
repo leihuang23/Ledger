@@ -7,12 +7,37 @@ from app.accounts.schemas import (
     AccountDetailRead,
     AccountInvoiceRead,
     AccountInvoiceSummary,
+    AccountListItem,
+    AccountList,
     AccountProductEventSummary,
     AccountSubscriptionRead,
     AccountTicketRead,
     AccountUserRead,
 )
 from app.models import Account, Invoice, ProductEvent, Subscription, SupportTicket, User
+
+
+def list_accounts(session: Session, *, limit: int = 100) -> AccountList:
+    total = int(session.scalar(select(func.count(Account.id))) or 0)
+    rows = session.scalars(
+        select(Account).order_by(Account.name, Account.id).limit(limit)
+    ).all()
+    return AccountList(
+        total=total,
+        accounts=[
+            AccountListItem(
+                id=account.id,
+                name=account.name,
+                segment=account.segment,
+                industry=account.industry,
+                region=account.region,
+                health_score=account.health_score,
+                source_scenario=account.source_scenario,
+                is_active=account.is_active,
+            )
+            for account in rows
+        ],
+    )
 
 
 def get_account_detail(session: Session, account_id: str) -> AccountDetailRead | None:
