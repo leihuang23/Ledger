@@ -509,6 +509,12 @@ def diagnose_with_llm_or_fallback(
     support_tickets: dict[str, Any],
 ) -> tuple[Diagnosis, LLMUsage]:
     """Try LLM diagnosis first, then fall back to deterministic evidence matching."""
+    deterministic_diagnosis = _diagnose_from_evidence(
+        revenue_metrics=revenue_metrics,
+        account_details=account_details,
+        doc_results=doc_results,
+        support_tickets=support_tickets,
+    )
     prompt = build_investigation_prompt(
         incident=incident,
         revenue_metrics=revenue_metrics,
@@ -521,13 +527,20 @@ def diagnose_with_llm_or_fallback(
         llm_client=llm_client,
         prompt=prompt,
     )
-    if llm_diagnosis is not None:
+    if llm_diagnosis is not None and _diagnosis_is_supported_by_evidence(
+        llm_diagnosis=llm_diagnosis,
+        deterministic_diagnosis=deterministic_diagnosis,
+    ):
         return llm_diagnosis, usage
+
+    fallback_reason = usage.fallback_reason
+    if llm_diagnosis is not None and fallback_reason is None:
+        fallback_reason = "unsupported_llm_diagnosis: deterministic_fallback"
 
     fallback_usage = usage.model_copy(
         update={
             "used_llm": usage.used_llm,
-            "fallback_reason": usage.fallback_reason or "deterministic_fallback",
+            "fallback_reason": fallback_reason or "deterministic_fallback",
         }
     ) if usage else LLMUsage(
         provider=getattr(llm_client, "provider", "unknown"),
@@ -535,12 +548,7 @@ def diagnose_with_llm_or_fallback(
         used_llm=False,
         fallback_reason="deterministic_fallback",
     )
-    return _diagnose_from_evidence(
-        revenue_metrics=revenue_metrics,
-        account_details=account_details,
-        doc_results=doc_results,
-        support_tickets=support_tickets,
-    ), fallback_usage
+    return deterministic_diagnosis, fallback_usage
 
 
 def _diagnose_with_llm(
@@ -570,6 +578,42 @@ def _diagnose_with_llm(
         is_specific=llm_response.confidence in {"medium", "high"},
     )
     return diagnosis, usage
+
+
+def _diagnosis_is_supported_by_evidence(
+    *,
+    llm_diagnosis: Diagnosis,
+    deterministic_diagnosis: Diagnosis,
+) -> bool:
+    if not llm_diagnosis.is_specific:
+        return _contains_any(
+            llm_diagnosis.root_cause,
+            ["insufficient", "does not prove", "unknown", "cannot prove"],
+        )
+    if not deterministic_diagnosis.is_specific:
+        return False
+    return _root_cause_signature(llm_diagnosis.root_cause) == _root_cause_signature(
+        deterministic_diagnosis.root_cause
+    )
+
+
+def _root_cause_signature(root_cause: str) -> str | None:
+    text = root_cause.lower()
+    signatures: dict[str, tuple[tuple[str, ...], ...]] = {
+        "retry_webhook": (("retry", "webhook"),),
+        "expired_payment_method": (
+            ("expired", "payment"),
+            ("expired", "card"),
+            ("card", "expiration"),
+        ),
+        "enterprise_onboarding": (("onboarding",), ("procurement",)),
+        "csv_import": (("csv", "import"),),
+        "report_export": (("report", "export"),),
+    }
+    for name, alternatives in signatures.items():
+        if any(all(marker in text for marker in markers) for markers in alternatives):
+            return name
+    return None
 
 
 def _fallback_next_actions() -> list[str]:

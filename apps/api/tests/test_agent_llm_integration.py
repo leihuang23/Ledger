@@ -180,7 +180,7 @@ def test_diagnose_with_llm_returns_diagnosis_on_valid_response() -> None:
 def test_diagnose_with_llm_or_fallback_uses_llm_when_specific() -> None:
     client = FakeLLMClient(
         LLMResponse(
-            root_cause="LLM-derived root cause.",
+            root_cause="LLM-derived root cause: retry webhook failures suppressed renewals.",
             confidence="high",
             next_actions=["LLM action"],
             reasoning="Evidence aligns.",
@@ -190,14 +190,68 @@ def test_diagnose_with_llm_or_fallback_uses_llm_when_specific() -> None:
     diagnosis, usage = diagnose_with_llm_or_fallback(
         llm_client=client,
         incident={"title": "MRR drop", "summary": ""},
-        revenue_metrics={"metric_evidence": {"failed_invoice_count": 0}},
-        account_details={"accounts": []},
+        revenue_metrics={"metric_evidence": {"failed_invoice_count": 1}},
+        account_details={
+            "accounts": [
+                {
+                    "failed_invoices": [{"failure_reason": "retry webhook timeout"}]
+                }
+            ]
+        },
         doc_results={"results": []},
-        support_tickets={"tickets": []},
+        support_tickets={
+            "tickets": [
+                {
+                    "subject": "Retry webhook failed",
+                    "description": "The second charge attempt did not run.",
+                }
+            ]
+        },
     )
 
-    assert diagnosis.root_cause == "LLM-derived root cause."
+    assert diagnosis.root_cause == (
+        "LLM-derived root cause: retry webhook failures suppressed renewals."
+    )
     assert usage.used_llm is True
+
+
+def test_diagnose_with_llm_or_fallback_rejects_unsupported_specific_root_cause() -> None:
+    client = FakeLLMClient(
+        LLMResponse(
+            root_cause="Pricing discounts were misconfigured during renewal.",
+            confidence="high",
+            next_actions=["Audit pricing discounts."],
+            reasoning="This conclusion is not present in the retrieved evidence.",
+        )
+    )
+
+    diagnosis, usage = diagnose_with_llm_or_fallback(
+        llm_client=client,
+        incident={"title": "MRR drop", "summary": ""},
+        revenue_metrics={"metric_evidence": {"failed_invoice_count": 1}},
+        account_details={
+            "accounts": [
+                {
+                    "failed_invoices": [{"failure_reason": "retry webhook timeout"}]
+                }
+            ]
+        },
+        doc_results={"results": []},
+        support_tickets={
+            "tickets": [
+                {
+                    "subject": "Retry webhook failed",
+                    "description": "The second charge attempt did not run.",
+                }
+            ]
+        },
+    )
+
+    assert diagnosis.root_cause == (
+        "Billing retry webhook regression suppressed second charge attempts."
+    )
+    assert usage.used_llm is True
+    assert usage.fallback_reason == "unsupported_llm_diagnosis: deterministic_fallback"
 
 
 def test_diagnose_with_llm_or_fallback_falls_back_when_llm_disabled() -> None:
