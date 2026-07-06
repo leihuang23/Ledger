@@ -30,3 +30,6 @@ playwright/.cache/
 *.pyo
 *.pyd
 *.egg-info/
+
+# IDE / tool state
+.trae/
