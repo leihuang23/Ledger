@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EVAL_RUN_TOKEN: e2e-eval-token
+
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
