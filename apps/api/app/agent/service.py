@@ -479,7 +479,7 @@ def mark_run_failed_on_timeout(
         session.commit()
         _invalidate_run_detail_cache(run_id)
         logger.warning(
-            "Agent run marked failed on celery soft time limit",
+            "Agent run marked failed on celery timeout",
             extra={"run_id": run_id, "reason": reason},
         )
     else:
