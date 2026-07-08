@@ -554,6 +554,105 @@ export type ApprovalDecisionResult =
   | { ok: true; data: ApprovalRequest }
   | { ok: false; error: string };
 
+export type AgentVersionStatus = 'draft' | 'published';
+
+export type AgentVersionSummary = {
+  id: string;
+  version_number: number | null;
+  semantic_version: string | null;
+  status: AgentVersionStatus;
+  model: string;
+  created_at: string;
+  published_at: string | null;
+  forked_from_version_id: string | null;
+};
+
+export type AgentVersionDetail = AgentVersionSummary & {
+  system_prompt: string;
+  temperature: number;
+  max_tokens: number;
+  enabled_tool_ids: string[];
+  allowed_scopes: string[];
+  published_by: string | null;
+};
+
+export type AgentSummary = {
+  id: string;
+  name: string;
+  description: string;
+  default_model: string;
+  created_at: string;
+  updated_at: string;
+  latest_published_version: AgentVersionSummary | null;
+  current_draft_version: AgentVersionSummary | null;
+  version_count: number;
+};
+
+export type AgentDetail = AgentSummary & {
+  versions: AgentVersionSummary[];
+};
+
+export type AgentList = {
+  total: number;
+  agents: AgentSummary[];
+};
+
+export type AgentVersionList = {
+  total: number;
+  versions: AgentVersionSummary[];
+};
+
+export type PublishResult = {
+  version: AgentVersionDetail;
+};
+
+export type AgentCreateInput = {
+  id: string;
+  name: string;
+  description?: string;
+  default_model?: string;
+  system_prompt?: string;
+};
+
+export type AgentVersionCreateInput = {
+  fork_from_version_id?: string;
+  system_prompt?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  enabled_tool_ids?: string[];
+  allowed_scopes?: string[];
+};
+
+export type AgentVersionUpdateInput = {
+  system_prompt?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  enabled_tool_ids?: string[];
+  allowed_scopes?: string[];
+};
+
+export type AgentListResult =
+  | { ok: true; data: AgentList }
+  | { ok: false; error: string };
+
+export type AgentDetailResult =
+  | { ok: true; data: AgentDetail }
+  | { ok: false; error: string };
+
+export type AgentVersionListResult =
+  | { ok: true; data: AgentVersionList }
+  | { ok: false; error: string };
+
+export type AgentVersionDetailResult =
+  | { ok: true; data: AgentVersionDetail }
+  | { ok: false; error: string };
+
+export type PublishVersionResult =
+  | { ok: true; data: PublishResult }
+  | { ok: false; error: string };
+
 type DemoOperatorOptions = {
   demoOperatorToken?: string;
 };
@@ -1152,6 +1251,290 @@ export async function searchKnowledge(query: string): Promise<KnowledgeSearchRes
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Knowledge search unavailable',
+    };
+  }
+}
+
+export async function listAgents(
+  options: { limit?: number; offset?: number } = {},
+): Promise<AgentListResult> {
+  try {
+    const params = new URLSearchParams();
+    if (options.limit !== undefined) {
+      params.set('limit', String(options.limit));
+    }
+    if (options.offset !== undefined) {
+      params.set('offset', String(options.offset));
+    }
+    const query = params.toString();
+    const url = `${resolveApiBaseUrl()}/agents${query ? `?${query}` : ''}`;
+    const response = await fetch(url, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Agents endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentList,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Agents endpoint unavailable',
+    };
+  }
+}
+
+export async function getAgent(agentId: string): Promise<AgentDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Agent endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Agent endpoint unavailable',
+    };
+  }
+}
+
+export async function listAgentVersions(
+  agentId: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<AgentVersionListResult> {
+  try {
+    const params = new URLSearchParams();
+    if (options.limit !== undefined) {
+      params.set('limit', String(options.limit));
+    }
+    if (options.offset !== undefined) {
+      params.set('offset', String(options.offset));
+    }
+    const query = params.toString();
+    const url = `${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}/versions${query ? `?${query}` : ''}`;
+    const response = await fetch(url, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Versions endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionList,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Versions endpoint unavailable',
+    };
+  }
+}
+
+export async function getAgentVersion(
+  agentId: string,
+  versionId: string,
+): Promise<AgentVersionDetailResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(versionId)}`,
+      { cache: 'no-store' },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Version endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Version endpoint unavailable',
+    };
+  }
+}
+
+export async function createAgent(
+  input: AgentCreateInput,
+  options: DemoOperatorOptions = {},
+): Promise<AgentDetailResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/agents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...demoOperatorHeaders(options.demoOperatorToken),
+      },
+      body: JSON.stringify(input),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(response, `Agent creation returned HTTP ${response.status}`),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Agent creation unavailable',
+    };
+  }
+}
+
+export async function createAgentVersion(
+  agentId: string,
+  input: AgentVersionCreateInput,
+  options: DemoOperatorOptions = {},
+): Promise<AgentVersionDetailResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}/versions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...demoOperatorHeaders(options.demoOperatorToken),
+        },
+        body: JSON.stringify(input),
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Version creation returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Version creation unavailable',
+    };
+  }
+}
+
+export async function updateAgentVersion(
+  agentId: string,
+  versionId: string,
+  input: AgentVersionUpdateInput,
+  options: DemoOperatorOptions = {},
+): Promise<AgentVersionDetailResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(versionId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...demoOperatorHeaders(options.demoOperatorToken),
+        },
+        body: JSON.stringify(input),
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Version update returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Version update unavailable',
+    };
+  }
+}
+
+export async function publishAgentVersion(
+  agentId: string,
+  versionId: string,
+  options: DemoOperatorOptions = {},
+): Promise<PublishVersionResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(versionId)}/publish`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...demoOperatorHeaders(options.demoOperatorToken),
+        },
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Version publish returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as PublishResult,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Version publish unavailable',
     };
   }
 }

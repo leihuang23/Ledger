@@ -4,7 +4,7 @@ import argparse
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Final
 from urllib.parse import urlparse
 
@@ -25,8 +25,10 @@ from app.knowledge.ingestion import ingest_builtin_knowledge_documents
 from app.models import (
     Account,
     ActionAuditEvent,
+    Agent,
     AgentRun,
     AgentRunStep,
+    AgentVersion,
     ApprovalRequest,
     EvalCase,
     EvalResult,
@@ -166,6 +168,8 @@ MODEL_ORDER: Final[tuple[type, ...]] = (
     User,
     Subscription,
     Account,
+    AgentVersion,
+    Agent,
 )
 
 
@@ -186,6 +190,8 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     existing_account = session.scalar(select(Account.id).limit(1))
     if existing_account is not None:
         ingest_builtin_knowledge_documents(session, force=False)
+        _seed_control_plane_agent(session)
+        session.commit()
         return None
 
     settings = get_settings()
@@ -228,6 +234,8 @@ def insert_seed_data(session: Session) -> SeedResult:
     session.add_all(build_eval_cases())
     session.flush()
     ingest_builtin_knowledge_documents(session, commit=False)
+    _seed_control_plane_agent(session)
+    session.flush()
 
     counts = seed_counts(session)
     fingerprint = dataset_fingerprint(session)
@@ -702,6 +710,62 @@ def build_eval_cases() -> list[EvalCase]:
     return cases
 
 
+def _seed_control_plane_agent(session: Session) -> None:
+    from app.llm.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+    agent_id = "revenue-ops-agent"
+    existing_agent = session.get(Agent, agent_id)
+    if existing_agent is not None:
+        has_published = any(
+            v.status == "published" for v in existing_agent.versions
+        )
+        if has_published:
+            return
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+
+    if existing_agent is None:
+        agent = Agent(
+            id=agent_id,
+            name="Revenue Ops Agent",
+            description=(
+                "Investigates SaaS revenue anomalies by querying metrics, searching "
+                "knowledge documents, and inspecting support tickets, then producing "
+                "an evidence-backed root cause report with approval-gated actions."
+            ),
+            default_model="gpt-4o-mini",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(agent)
+        session.flush()
+    else:
+        agent = existing_agent
+
+    existing_v1 = session.get(AgentVersion, f"{agent_id}_v1")
+    if existing_v1 is None:
+        v1 = AgentVersion(
+            id=f"{agent_id}_v1",
+            agent_id=agent_id,
+            version_number=1,
+            semantic_version="1.0.0",
+            status="published",
+            system_prompt=INVESTIGATION_SYSTEM_PROMPT,
+            model=agent.default_model,
+            temperature=0.1,
+            max_tokens=1024,
+            enabled_tool_ids=[],
+            allowed_scopes=[],
+            published_at=now,
+            published_by="bootstrap",
+            forked_from_version_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(v1)
+        agent.updated_at = now
+
+
 def scenario_affected_accounts(
     session: Session,
     *,
@@ -966,6 +1030,8 @@ def seed_counts(session: Session) -> dict[str, int]:
         "agent_run_steps": AgentRunStep,
         "knowledge_documents": KnowledgeDocument,
         "knowledge_document_chunks": KnowledgeDocumentChunk,
+        "agents": Agent,
+        "agent_versions": AgentVersion,
     }
     return {
         table_name: session.scalar(select(func.count()).select_from(model)) or 0

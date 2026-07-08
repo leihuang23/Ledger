@@ -8,6 +8,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.accounts.router import router as accounts_router
 from app.agent.router import router as agent_router
+from app.agents.router import router as agents_router
 from app.approvals.router import approvals_router, mock_actions_router
 from app.core.config import get_settings
 from app.core.errors import error_response
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(incidents_router)
     app.include_router(knowledge_router)
     app.include_router(agent_router)
+    app.include_router(agents_router)
     app.include_router(mock_actions_router)
     app.include_router(approvals_router)
     app.include_router(evals_router)

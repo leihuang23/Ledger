@@ -467,6 +467,63 @@ class EvalResult(Base):
     agent_run: Mapped[AgentRun] = relationship(back_populates="eval_results")
 
 
+class Agent(Base):
+    __tablename__ = "agents"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    default_model: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    versions: Mapped[list[AgentVersion]] = relationship(
+        back_populates="agent",
+        cascade="all, delete-orphan",
+        order_by="AgentVersion.version_number",
+    )
+
+
+class AgentVersion(Base):
+    __tablename__ = "agent_versions"
+    __table_args__ = (
+        Index(
+            "uq_agent_versions_published_number",
+            "agent_id",
+            "version_number",
+            unique=True,
+            sqlite_where=text("status = 'published'"),
+            postgresql_where=text("status = 'published'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version_number: Mapped[int | None] = mapped_column(Integer)
+    semantic_version: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.1)
+    max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=1024)
+    enabled_tool_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    allowed_scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_by: Mapped[str | None] = mapped_column(String(80))
+    forked_from_version_id: Mapped[str | None] = mapped_column(
+        String(128), ForeignKey("agent_versions.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    agent: Mapped[Agent] = relationship(back_populates="versions")
+    forked_from: Mapped["AgentVersion | None"] = relationship(
+        "AgentVersion", remote_side="AgentVersion.id"
+    )
+
+
 Index("ix_invoices_account_date", Invoice.account_id, Invoice.invoice_date)
 Index("ix_product_events_account_time", ProductEvent.account_id, ProductEvent.event_time)
 Index("ix_support_tickets_account_created", SupportTicket.account_id, SupportTicket.created_at)
@@ -482,3 +539,4 @@ Index("ix_approval_requests_run_status", ApprovalRequest.run_id, ApprovalRequest
 Index("ix_action_audit_events_run_created", ActionAuditEvent.run_id, ActionAuditEvent.created_at)
 Index("ix_eval_results_run_case", EvalResult.eval_run_id, EvalResult.eval_case_id)
 Index("ix_eval_results_case_created", EvalResult.eval_case_id, EvalResult.created_at)
+Index("ix_agent_versions_agent_status", AgentVersion.agent_id, AgentVersion.status)
