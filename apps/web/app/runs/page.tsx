@@ -44,9 +44,9 @@ export default async function RunsPage({ searchParams }: RunsPageProps) {
         {agentVersionId ? (
           <Link
             className="action-button secondary-action"
-            href={`/runs?agent_version_id=${encodeURIComponent(agentVersionId)}`}
+            href={`/runs${statusParam ? `?status=${encodeURIComponent(statusParam)}` : ''}`}
           >
-            Filtering by version {agentVersionId}
+            Clear version filter ({agentVersionId})
           </Link>
         ) : null}
       </header>
