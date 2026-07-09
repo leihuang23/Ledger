@@ -16,6 +16,7 @@ from app.agents.schemas import (
     VersionSummary,
 )
 from app.models import Agent, AgentVersion
+from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
 
 
 class AgentNotFoundError(LookupError):
@@ -54,8 +55,10 @@ def _validate_version_config(
     *,
     model: str | None,
     enabled_tool_ids: list[str] | None,
+    allowed_scopes: list[str] | None = None,
 ) -> None:
     from app.agent.tools import TOOL_IDS
+    from app.tools.scopes import ALLOWED_SCOPES
 
     if model is not None and model not in ALLOWED_MODELS:
         allowed = ", ".join(sorted(ALLOWED_MODELS))
@@ -67,6 +70,12 @@ def _validate_version_config(
         if unknown:
             raise InvalidVersionConfigError(
                 "Unknown tool ids: " + ", ".join(sorted(unknown))
+            )
+    if allowed_scopes is not None:
+        unknown = set(allowed_scopes) - ALLOWED_SCOPES
+        if unknown:
+            raise InvalidVersionConfigError(
+                "Unknown permission scopes: " + ", ".join(sorted(unknown))
             )
 
 
@@ -260,7 +269,10 @@ def create_agent(session: Session, payload: AgentCreate) -> dict[str, Any]:
         temperature=0.1,
         max_tokens=1024,
         enabled_tool_ids=list(DEFAULT_ENABLED_TOOL_IDS),
-        allowed_scopes=[],
+        # Match the v1 default applied by create_version (line 428), seed.py,
+        # and migration 0012's backfill. An empty list here would make a
+        # published-from-scratch agent block every data tool via can_call_tool.
+        allowed_scopes=list(DEFAULT_V1_ALLOWED_SCOPES),
         published_at=None,
         published_by=None,
         forked_from_version_id=None,
@@ -416,10 +428,14 @@ def create_version(
         if enabled_tool_ids is None:
             enabled_tool_ids = list(DEFAULT_ENABLED_TOOL_IDS)
         if allowed_scopes is None:
-            allowed_scopes = []
+            allowed_scopes = list(DEFAULT_V1_ALLOWED_SCOPES)
         forked_from = None
 
-    _validate_version_config(model=model, enabled_tool_ids=enabled_tool_ids)
+    _validate_version_config(
+        model=model,
+        enabled_tool_ids=enabled_tool_ids,
+        allowed_scopes=allowed_scopes,
+    )
 
     draft_count = sum(1 for v in agent.versions if v.status == "draft")
     version_id = f"{agent_id}_draft_{draft_count + 1}_{secrets.token_hex(3)}"
@@ -474,6 +490,7 @@ def update_version(
     _validate_version_config(
         model=payload.model,
         enabled_tool_ids=payload.enabled_tool_ids,
+        allowed_scopes=payload.allowed_scopes,
     )
     if payload.system_prompt is not None:
         version.system_prompt = payload.system_prompt
@@ -526,6 +543,7 @@ def publish_version(
     _validate_version_config(
         model=version.model,
         enabled_tool_ids=list(version.enabled_tool_ids or []),
+        allowed_scopes=list(version.allowed_scopes or []),
     )
 
     now = _utcnow()

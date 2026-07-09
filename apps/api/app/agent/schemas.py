@@ -58,20 +58,23 @@ class AgentRunStepRead(BaseModel):
     sequence: int
     stage: str
     tool_name: str | None
-    status: Literal["running", "succeeded", "failed"]
+    status: Literal["running", "succeeded", "failed", "blocked"]
     inputs: dict[str, Any]
     outputs: dict[str, Any] | None
     error: str | None
+    blocked_reason: str | None = None
     started_at: datetime
     completed_at: datetime | None
 
 
 class AgentRunSummary(BaseModel):
     id: str
-    incident_id: str
+    incident_id: str | None
     agent_id: str
     agent_version_id: str
-    status: Literal["queued", "running", "succeeded", "failed"]
+    status: Literal[
+        "queued", "running", "waiting_for_approval", "succeeded", "failed"
+    ]
     trace_id: str | None
     trace_url: str | None
     trace_provider: str | None
@@ -88,12 +91,14 @@ class AgentRunSummary(BaseModel):
 
 class AgentRunDetail(BaseModel):
     id: str
-    incident_id: str
+    incident_id: str | None
     agent_id: str
     agent_version_id: str
     agent: dict[str, Any] | None = None
     agent_version: dict[str, Any] | None = None
-    status: Literal["queued", "running", "succeeded", "failed"]
+    status: Literal[
+        "queued", "running", "waiting_for_approval", "succeeded", "failed"
+    ]
     is_stale: bool = False
     trace_id: str | None
     trace_url: str | None

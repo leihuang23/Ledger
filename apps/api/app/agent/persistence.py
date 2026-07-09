@@ -71,6 +71,30 @@ class AgentRunRecorder:
         self._complete_step(step.id, output)
         return output
 
+    def record_blocked(
+        self,
+        *,
+        stage: str,
+        tool_name: str | None,
+        inputs: object,
+        blocked_reason: str,
+        fallback_output: object,
+    ) -> None:
+        """Record a tool call that was NOT dispatched because the agent version's
+        permission policy blocked it (PRD FR-7, AC-2.4).
+
+        Unlike ``record``, this does not raise and does not run the tool's
+        action. It persists a step with ``status="blocked"`` and the
+        ``blocked_reason``, while still storing ``fallback_output`` in
+        ``outputs`` so downstream report synthesis and eval regression can
+        consume the degraded-evidence payload (e.g. ``tool_disabled: True``).
+
+        Committed immediately so the blocked step is visible in the run history
+        without waiting for a batch (mirrors ``_fail_step``).
+        """
+        step = self._start_step(stage=stage, tool_name=tool_name, inputs=inputs)
+        self._block_step(step.id, blocked_reason, fallback_output)
+
     def _touch_run_heartbeat(self) -> None:
         self.run.updated_at = utcnow_naive()
 
@@ -146,3 +170,21 @@ class AgentRunRecorder:
             self._touch_run_heartbeat()
             self.session.commit()
             self._steps_since_commit = 0
+
+    def _block_step(
+        self, step_id: str, blocked_reason: str, fallback_output: object
+    ) -> None:
+        # Finalize a permission-blocked tool step (PRD FR-7). The step row was
+        # flushed in _start_step; update it in place and commit immediately so
+        # the blocked step is visible without waiting for a batch.
+        now = utcnow_naive()
+        step = self.session.get(AgentRunStep, step_id)
+        if step is None:
+            raise RuntimeError(f"Agent run step disappeared: {step_id}")
+        step.status = "blocked"
+        step.blocked_reason = blocked_reason
+        step.outputs = jsonable_encoder(fallback_output)
+        step.completed_at = now
+        self._touch_run_heartbeat()
+        self.session.commit()
+        self._steps_since_commit = 0

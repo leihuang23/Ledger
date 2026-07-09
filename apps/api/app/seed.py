@@ -713,6 +713,7 @@ def build_eval_cases() -> list[EvalCase]:
 def _seed_control_plane_agent(session: Session) -> None:
     from app.agent.tools import TOOL_IDS
     from app.llm.prompts import INVESTIGATION_SYSTEM_PROMPT
+    from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
 
     agent_id = "revenue-ops-agent"
     version_id = f"{agent_id}_v1"
@@ -758,7 +759,7 @@ def _seed_control_plane_agent(session: Session) -> None:
             temperature=0.1,
             max_tokens=1024,
             enabled_tool_ids=list(TOOL_IDS),
-            allowed_scopes=[],
+            allowed_scopes=list(DEFAULT_V1_ALLOWED_SCOPES),
             published_at=now,
             published_by="bootstrap",
             forked_from_version_id=None,
@@ -773,6 +774,10 @@ def _seed_control_plane_agent(session: Session) -> None:
             existing_v1.published_at = now
         if existing_v1.enabled_tool_ids is None or len(existing_v1.enabled_tool_ids) == 0:
             existing_v1.enabled_tool_ids = list(TOOL_IDS)
+        if not existing_v1.allowed_scopes:
+            # Backfill scopes on databases seeded before Phase 3 scope
+            # enforcement, so v1's data tools remain callable (PRD §9.5).
+            existing_v1.allowed_scopes = list(DEFAULT_V1_ALLOWED_SCOPES)
         if existing_v1.model is None or len(existing_v1.model) == 0:
             existing_v1.model = agent.default_model
         if existing_v1.temperature is None:

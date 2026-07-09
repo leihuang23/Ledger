@@ -433,20 +433,21 @@ export type AgentRunStep = {
   sequence: number;
   stage: string;
   tool_name: string | null;
-  status: 'running' | 'succeeded' | 'failed';
+  status: 'running' | 'succeeded' | 'failed' | 'blocked';
   inputs: Record<string, unknown>;
   outputs: Record<string, unknown> | null;
   error: string | null;
+  blocked_reason: string | null;
   started_at: string;
   completed_at: string | null;
 };
 
 export type AgentRunSummary = {
   id: string;
-  incident_id: string;
+  incident_id: string | null;
   agent_id: string;
   agent_version_id: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'waiting_for_approval' | 'succeeded' | 'failed';
   trace_id: string | null;
   trace_url: string | null;
   trace_provider: 'langfuse' | 'langsmith' | 'local' | null;
@@ -463,7 +464,7 @@ export type AgentRunSummary = {
 
 export type AgentRunDetail = {
   id: string;
-  incident_id: string;
+  incident_id: string | null;
   agent_id: string;
   agent_version_id: string;
   agent: {
@@ -479,7 +480,7 @@ export type AgentRunDetail = {
     status: AgentVersionStatus;
     model: string;
   } | null;
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'waiting_for_approval' | 'succeeded' | 'failed';
   is_stale: boolean;
   trace_id: string | null;
   trace_url: string | null;
@@ -1008,6 +1009,123 @@ export async function getAgentRun(runId: string): Promise<AgentRunDetailResult> 
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Agent run endpoint unavailable',
+    };
+  }
+}
+
+export async function listRuns(
+  options: { agent_version_id?: string; status?: string } = {},
+): Promise<AgentRunListResult> {
+  try {
+    const params = new URLSearchParams();
+    if (options.agent_version_id) {
+      params.set('agent_version_id', options.agent_version_id);
+    }
+    if (options.status) {
+      params.set('status', options.status);
+    }
+    const query = params.toString();
+    const url = `${resolveApiBaseUrl()}/runs${query ? `?${query}` : ''}`;
+    const response = await fetch(url, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Runs endpoint returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentRunSummary[],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Runs endpoint unavailable',
+    };
+  }
+}
+
+export async function getRun(runId: string): Promise<AgentRunDetailResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/runs/${encodeURIComponent(runId)}`,
+      {
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Run endpoint returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentRunDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Run endpoint unavailable',
+    };
+  }
+}
+
+export async function launchRun(
+  body: {
+    agent_version_id: string;
+    input_payload?: Record<string, unknown>;
+    incident_id?: string | null;
+    run_inline?: boolean;
+  },
+  options: DemoOperatorOptions = {},
+): Promise<StartInvestigationResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/runs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...demoOperatorHeaders(options.demoOperatorToken),
+      },
+      body: JSON.stringify({
+        agent_version_id: body.agent_version_id,
+        input_payload: body.input_payload ?? {},
+        incident_id: body.incident_id ?? null,
+        run_inline: body.run_inline ?? false,
+      }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Run launch returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentRunDetail,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Run launch unavailable',
     };
   }
 }

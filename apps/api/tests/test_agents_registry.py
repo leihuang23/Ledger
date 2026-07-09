@@ -391,6 +391,63 @@ class TestAgentVersions:
         assert version["forked_from_version_id"] is None
         assert version["system_prompt"] == "scratch prompt"
 
+    def test_create_draft_for_new_agent_defaults_allowed_scopes_to_v1(
+        self, client: TestClient
+    ) -> None:
+        """A new version created without a source to fork from defaults to the v1
+        scopes (read_data, write_mock_action, request_approval) so the run path
+        doesn't silently block every tool as scope_not_allowed. Mirrors the
+        migration 0012 backfill for existing v1 data."""
+        client.post(
+            "/agents",
+            json={
+                "id": "scope-default-agent",
+                "name": "Scope Default Agent",
+                "description": "",
+                "default_model": "gpt-4o-mini",
+            },
+        )
+        version_resp = client.post(
+            "/agents/scope-default-agent/versions",
+            json={"system_prompt": "scratch prompt"},
+        )
+        assert version_resp.status_code == 201
+        version = version_resp.json()
+        assert version["forked_from_version_id"] is None
+        assert version["allowed_scopes"] == [
+            "read_data",
+            "write_mock_action",
+            "request_approval",
+        ]
+
+    def test_create_agent_initial_draft_defaults_allowed_scopes_to_v1(
+        self, client: TestClient
+    ) -> None:
+        """The initial draft auto-created by POST /agents must default to the v1
+        scopes, mirroring create_version/seed/migration 0012. Without this, an
+        operator publishing that draft directly would block every data tool."""
+        resp = client.post(
+            "/agents",
+            json={
+                "id": "initial-draft-scopes-agent",
+                "name": "Initial Draft Scopes Agent",
+                "description": "",
+                "default_model": "gpt-4o-mini",
+            },
+        )
+        assert resp.status_code == 201
+        # The agent summary's VersionSummary omits allowed_scopes; fetch the
+        # version detail to assert the persisted scopes.
+        detail = client.get(
+            "/agents/initial-draft-scopes-agent/versions/initial-draft-scopes-agent_draft_v0"
+        )
+        assert detail.status_code == 200
+        assert detail.json()["allowed_scopes"] == [
+            "read_data",
+            "write_mock_action",
+            "request_approval",
+        ]
+
     def test_get_version_detail(self, client: TestClient) -> None:
         response = client.get("/agents/revenue-ops-agent/versions/revenue-ops-agent_v1")
         assert response.status_code == 200
@@ -589,6 +646,19 @@ class TestValidation:
         )
         assert response.status_code == 422
 
+    def test_unknown_scope_value_returns_422(self, client: TestClient) -> None:
+        client.post(
+            "/agents",
+            json={"id": "scope-value-agent", "name": "Scope Value Agent"},
+        )
+        response = client.post(
+            "/agents/scope-value-agent/versions",
+            json={
+                "allowed_scopes": ["read_data", "definitely_not_a_real_scope"],
+            },
+        )
+        assert response.status_code == 422
+
     def test_unsupported_model_returns_422(self, client: TestClient) -> None:
         client.post(
             "/agents",
@@ -629,6 +699,26 @@ class TestValidation:
 
         response = client.post(
             f"/agents/persisted-invalid-agent/versions/{draft_id}/publish"
+        )
+        assert response.status_code == 422
+
+    def test_publish_revalidates_persisted_scopes(
+        self, client: TestClient, session_factory: Callable[[], Session]
+    ) -> None:
+        client.post(
+            "/agents",
+            json={"id": "persisted-invalid-scope-agent", "name": "Persisted Invalid Scope Agent"},
+        )
+        list_resp = client.get("/agents/persisted-invalid-scope-agent/versions")
+        draft_id = list_resp.json()["versions"][0]["id"]
+        with session_factory() as db_session:
+            draft = db_session.get(AgentVersion, draft_id)
+            assert draft is not None
+            draft.allowed_scopes = ["read_data", "fabricated_scope"]
+            db_session.commit()
+
+        response = client.post(
+            f"/agents/persisted-invalid-scope-agent/versions/{draft_id}/publish"
         )
         assert response.status_code == 422
 
@@ -973,6 +1063,19 @@ class TestEdgeCases:
         response = client.patch(
             f"/agents/val-patch-agent/versions/{version_id}",
             json={"temperature": 5.0},
+        )
+        assert response.status_code == 422
+
+    def test_update_version_unknown_scope_returns_422(self, client: TestClient) -> None:
+        client.post(
+            "/agents",
+            json={"id": "scope-patch-agent", "name": "Scope Patch Agent"},
+        )
+        list_resp = client.get("/agents/scope-patch-agent/versions")
+        version_id = list_resp.json()["versions"][0]["id"]
+        response = client.patch(
+            f"/agents/scope-patch-agent/versions/{version_id}",
+            json={"allowed_scopes": ["read_data", "invented_scope"]},
         )
         assert response.status_code == 422
 

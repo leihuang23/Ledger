@@ -62,6 +62,7 @@ def run_investigation_workflow(
     trace: AgentTraceHandle | None = None,
     llm_client: LLMClient | None = None,
     enabled_tool_ids: set[str] | frozenset[str] | None = None,
+    blocked_reasons: dict[str, str] | None = None,
 ) -> InvestigationReport:
     recorder = AgentRunRecorder(session, run, trace)
 
@@ -69,6 +70,18 @@ def run_investigation_workflow(
         enabled = set(TOOL_IDS)
     else:
         enabled = set(enabled_tool_ids) & set(TOOL_IDS)
+
+    # PRD FR-7: a tool call blocked by the agent version's permission policy is
+    # recorded as a visible ``blocked`` step with a granular reason. When the
+    # caller supplies ``blocked_reasons`` (from the policy engine), each blocked
+    # tool gets its specific reason; otherwise the legacy default
+    # ``tool_not_enabled`` applies for backward compatibility.
+    if blocked_reasons is None:
+        def reason_for(tool_id: str) -> str:
+            return "tool_not_enabled"
+    else:
+        def reason_for(tool_id: str) -> str:
+            return blocked_reasons.get(tool_id, "tool_not_enabled")
 
     builder = StateGraph(InvestigationState)
 
@@ -154,12 +167,18 @@ def run_investigation_workflow(
                 ).model_dump(mode="json"),
             )
         else:
-            metrics = recorder.record(
+            # Blocked by the agent version's tool policy (PRD FR-7). Record a
+            # visible ``blocked`` step with the reason, but still produce the
+            # degraded-evidence fallback so report synthesis can cite it.
+            fallback = _disabled_revenue_metrics(incident_id, state["incident"])
+            recorder.record_blocked(
                 stage="query metrics",
                 tool_name="query_revenue_metrics",
                 inputs={"incident_id": incident_id},
-                action=lambda: _disabled_revenue_metrics(incident_id, state["incident"]),
+                blocked_reason=reason_for("query_revenue_metrics"),
+                fallback_output=fallback,
             )
+            metrics = fallback
 
         if "fetch_account_details" in enabled:
             account_invoice_ids = [] if metrics.get("tool_disabled") else metrics["invoice_ids"]
@@ -182,19 +201,22 @@ def run_investigation_workflow(
                 ).model_dump(mode="json"),
             )
         else:
-            account_details = recorder.record(
+            fallback = {
+                "accounts": [],
+                "tool_disabled": True,
+                "tool_disabled_reason": "fetch_account_details was not enabled for this agent version.",
+            }
+            recorder.record_blocked(
                 stage="query metrics",
                 tool_name="fetch_account_details",
                 inputs={
                     "account_ids": metrics["affected_account_ids"],
                     "invoice_ids": metrics["invoice_ids"],
                 },
-                action=lambda: {
-                    "accounts": [],
-                    "tool_disabled": True,
-                    "tool_disabled_reason": "fetch_account_details was not enabled for this agent version.",
-                },
+                blocked_reason=reason_for("fetch_account_details"),
+                fallback_output=fallback,
             )
+            account_details = fallback
 
         return {"revenue_metrics": metrics, "account_details": account_details}
 
@@ -210,17 +232,23 @@ def run_investigation_workflow(
                 ).model_dump(mode="json"),
             )
         else:
-            doc_results = recorder.record(
+            # Blocked by the agent version's tool policy (PRD FR-7). Record a
+            # visible ``blocked`` step with the reason, but still produce the
+            # degraded-evidence fallback so report synthesis can cite it.
+            fallback = {
+                "query": plan.get("doc_query", ""),
+                "results": [],
+                "tool_disabled": True,
+                "tool_disabled_reason": "search_docs was not enabled for this agent version.",
+            }
+            recorder.record_blocked(
                 stage="search docs",
                 tool_name="search_docs",
                 inputs={"query": plan.get("doc_query", ""), "limit": 5},
-                action=lambda: {
-                    "query": plan.get("doc_query", ""),
-                    "results": [],
-                    "tool_disabled": True,
-                    "tool_disabled_reason": "search_docs was not enabled for this agent version.",
-                },
+                blocked_reason=reason_for("search_docs"),
+                fallback_output=fallback,
             )
+            doc_results = fallback
         return {"doc_results": doc_results}
 
     def fetch_tickets_node(state: InvestigationState) -> dict[str, Any]:
@@ -246,7 +274,15 @@ def run_investigation_workflow(
                 ).model_dump(mode="json"),
             )
         else:
-            support_tickets = recorder.record(
+            # Blocked by the agent version's tool policy (PRD FR-7). Record a
+            # visible ``blocked`` step with the reason, but still produce the
+            # degraded-evidence fallback so report synthesis can cite it.
+            fallback = {
+                "tickets": [],
+                "tool_disabled": True,
+                "tool_disabled_reason": "fetch_support_tickets was not enabled for this agent version.",
+            }
+            recorder.record_blocked(
                 stage="fetch tickets",
                 tool_name="fetch_support_tickets",
                 inputs={
@@ -254,12 +290,10 @@ def run_investigation_workflow(
                     "since": since,
                     "limit": 24,
                 },
-                action=lambda: {
-                    "tickets": [],
-                    "tool_disabled": True,
-                    "tool_disabled_reason": "fetch_support_tickets was not enabled for this agent version.",
-                },
+                blocked_reason=reason_for("fetch_support_tickets"),
+                fallback_output=fallback,
             )
+            support_tickets = fallback
         return {"support_tickets": support_tickets}
 
     def synthesize_report_node(state: InvestigationState) -> dict[str, Any]:
