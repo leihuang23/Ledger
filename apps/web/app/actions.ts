@@ -115,7 +115,7 @@ export async function runEvalSuiteFromReport() {
 
 export async function launchControlPlaneRun(formData: FormData) {
   const agentVersionId = readRequiredFormValue(formData, 'agent_version_id');
-  const agentIdRaw = formData.get('agent_id');
+  const agentId = readRequiredFormValue(formData, 'agent_id');
   const incidentId = readRequiredFormValue(formData, 'incident_id');
 
   const run = await launchRun(
@@ -128,8 +128,6 @@ export async function launchControlPlaneRun(formData: FormData) {
     demoOperatorOptions(),
   );
 
-  const agentId =
-    typeof agentIdRaw === 'string' && agentIdRaw.length > 0 ? agentIdRaw : '';
   const versionPath = `/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(agentVersionId)}`;
   if (!run.ok) {
     redirect(`${versionPath}?launch_error=${encodeURIComponent(run.error)}`);
