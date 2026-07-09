@@ -744,6 +744,7 @@ tbody tr:last-child td {
 
 .run-status-running,
 .run-status-queued,
+.run-status-waiting_for_approval,
 .confidence-medium,
 .step-running,
 .action-pending_approval,
@@ -751,6 +752,12 @@ tbody tr:last-child td {
   border-color: #fedf89;
   background: #fffaeb;
   color: var(--amber);
+}
+
+.step-blocked {
+  border-color: #f2b8b5;
+  background: #fff0ee;
+  color: var(--red);
 }
 
 .next-action-list {

@@ -253,8 +253,11 @@ class AgentRun(Base):
     )
 
     id: Mapped[str] = mapped_column(String(48), primary_key=True)
-    incident_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True
+    # incident_id is nullable for control-plane runs that are not incident-bound
+    # (PRD FR-8). The partial unique index uq_agent_runs_active_incident
+    # excludes NULL rows, so non-incident runs do not collide.
+    incident_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=True, index=True
     )
     agent_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -320,6 +323,9 @@ class AgentRunStep(Base):
     inputs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     outputs: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
+    # Set when status == "blocked": the reason a tool call was not dispatched
+    # (PRD FR-7). One of "tool_not_enabled" or "scope_not_allowed".
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

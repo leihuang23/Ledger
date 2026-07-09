@@ -6,6 +6,7 @@ import {
   approveApprovalRequest,
   createAgentVersion,
   createIncidentFromAnomaly,
+  launchRun,
   publishAgentVersion as apiPublishAgentVersion,
   rejectApprovalRequest,
   runEvalSuite,
@@ -50,25 +51,27 @@ export async function startInvestigationFromIncident(formData: FormData) {
 export async function approveApprovalFromRun(formData: FormData) {
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const runId = readRequiredFormValue(formData, 'run_id');
+  const surface = readRunSurface(formData);
   const result = await approveApprovalRequest(
     approvalId,
     'Approved from the investigation approval queue.',
     demoOperatorOptions(),
   );
 
-  redirectToRun(runId, result.ok ? undefined : result.error);
+  redirectToRun(runId, result.ok ? undefined : result.error, surface);
 }
 
 export async function rejectApprovalFromRun(formData: FormData) {
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const runId = readRequiredFormValue(formData, 'run_id');
+  const surface = readRunSurface(formData);
   const result = await rejectApprovalRequest(
     approvalId,
     'Rejected from the investigation approval queue.',
     demoOperatorOptions(),
   );
 
-  redirectToRun(runId, result.ok ? undefined : result.error);
+  redirectToRun(runId, result.ok ? undefined : result.error, surface);
 }
 
 export async function approveApprovalFromQueue(formData: FormData) {
@@ -108,6 +111,29 @@ export async function runEvalSuiteFromReport() {
   }
 
   redirect('/evals');
+}
+
+export async function launchControlPlaneRun(formData: FormData) {
+  const agentVersionId = readRequiredFormValue(formData, 'agent_version_id');
+  const agentId = readRequiredFormValue(formData, 'agent_id');
+  const incidentId = readRequiredFormValue(formData, 'incident_id');
+
+  const run = await launchRun(
+    {
+      agent_version_id: agentVersionId,
+      input_payload: {},
+      incident_id: incidentId,
+      run_inline: true,
+    },
+    demoOperatorOptions(),
+  );
+
+  const versionPath = `/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(agentVersionId)}`;
+  if (!run.ok) {
+    redirect(`${versionPath}?launch_error=${encodeURIComponent(run.error)}`);
+  }
+
+  redirect(`/runs/${encodeURIComponent(run.data.id)}`);
 }
 
 export async function saveAgentVersionDraft(formData: FormData) {
@@ -210,12 +236,21 @@ function demoOperatorOptions() {
   };
 }
 
-function redirectToRun(runId: string, error?: string) {
+function redirectToRun(
+  runId: string,
+  error?: string,
+  surface: 'agent' | 'control-plane' = 'agent',
+) {
   const encodedRunId = encodeURIComponent(runId);
+  const basePath = surface === 'control-plane' ? '/runs' : '/agent/runs';
   if (error) {
-    redirect(`/agent/runs/${encodedRunId}?approval_error=${encodeURIComponent(error)}`);
+    redirect(`${basePath}/${encodedRunId}?approval_error=${encodeURIComponent(error)}`);
   }
-  redirect(`/agent/runs/${encodedRunId}`);
+  redirect(`${basePath}/${encodedRunId}`);
+}
+
+function readRunSurface(formData: FormData): 'agent' | 'control-plane' {
+  return formData.get('surface') === 'control-plane' ? 'control-plane' : 'agent';
 }
 
 function redirectToApprovals(error?: string) {

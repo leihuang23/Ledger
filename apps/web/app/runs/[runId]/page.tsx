@@ -13,37 +13,39 @@ import type {
   ReportClaim,
   ReportEvidence,
 } from '@/lib/api';
-import { getAgentRun } from '@/lib/api';
+import { getRun } from '@/lib/api';
 import { formatCount, formatDateTime, formatMoney, formatUsd } from '@/lib/format';
 
-type AgentRunPageProps = {
+type RunPageProps = {
   params: Promise<{
     runId: string;
   }>;
-  searchParams: Promise<{
+  searchParams?: Promise<{
     approval_error?: string;
   }>;
 };
 
-export default async function AgentRunPage({ params, searchParams }: AgentRunPageProps) {
+export const dynamic = 'force-dynamic';
+
+export default async function RunPage({ params, searchParams }: RunPageProps) {
   const { runId } = await params;
-  const { approval_error: approvalError } = await searchParams;
-  const result = await getAgentRun(runId);
+  const { approval_error: approvalError } = (await searchParams) ?? {};
+  const result = await getRun(runId);
 
   if (!result.ok) {
     return (
       <main className="dashboard-shell">
         <header className="dashboard-header">
           <div>
-            <p className="eyebrow">Investigation</p>
+            <p className="eyebrow">Control plane</p>
             <h1>Run unavailable</h1>
           </div>
-          <Link className="action-button secondary-action" href="/">
-            Dashboard
+          <Link className="action-button secondary-action" href="/runs">
+            All runs
           </Link>
         </header>
         <section className="empty-state">
-          <h2>Agent run unavailable</h2>
+          <h2>Run unavailable</h2>
           <p className="error-detail">{result.error}</p>
         </section>
       </main>
@@ -61,7 +63,11 @@ function RunReport({
   run: AgentRunDetail;
 }) {
   const report = run.final_report;
-  const runIsActive = !run.is_stale && (run.status === 'queued' || run.status === 'running');
+  const runIsActive =
+    !run.is_stale &&
+    (run.status === 'queued' ||
+      run.status === 'running' ||
+      run.status === 'waiting_for_approval');
   const llmProvider =
     typeof run.trace_metadata?.llm_provider === 'string'
       ? run.trace_metadata.llm_provider
@@ -83,14 +89,14 @@ function RunReport({
     <main className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Investigation {run.id}</p>
+          <p className="eyebrow">Control-plane run {run.id}</p>
           <h1>
             {report?.root_cause ??
               (run.is_stale
-                ? 'Investigation interrupted before completion'
+                ? 'Run interrupted before completion'
                 : runIsActive
-                  ? 'Investigation in progress'
-                  : 'Investigation failed before report synthesis')}
+                  ? 'Run in progress'
+                  : 'Run failed before report synthesis')}
           </h1>
         </div>
         <div className="header-actions">
@@ -108,8 +114,8 @@ function RunReport({
               Incident
             </Link>
           ) : null}
-          <Link className="action-button secondary-action" href="/">
-            Dashboard
+          <Link className="action-button secondary-action" href="/runs">
+            All runs
           </Link>
         </div>
       </header>
@@ -366,6 +372,7 @@ function ApprovalQueuePanel({
                       <form action={approveApprovalFromRun}>
                         <input name="approval_id" type="hidden" value={action.approval_request.id} />
                         <input name="run_id" type="hidden" value={runId} />
+                        <input name="surface" type="hidden" value="control-plane" />
                         <button className="action-button" type="submit">
                           Approve
                         </button>
@@ -373,6 +380,7 @@ function ApprovalQueuePanel({
                       <form action={rejectApprovalFromRun}>
                         <input name="approval_id" type="hidden" value={action.approval_request.id} />
                         <input name="run_id" type="hidden" value={runId} />
+                        <input name="surface" type="hidden" value="control-plane" />
                         <button className="action-button secondary-action" type="submit">
                           Reject
                         </button>
@@ -505,6 +513,11 @@ function StepHistory({ steps }: { steps: AgentRunStep[] }) {
                 <dd>{step.completed_at ? formatDateTime(step.completed_at) : 'pending'}</dd>
               </div>
             </dl>
+            {step.status === 'blocked' && step.blocked_reason ? (
+              <p className="error-detail">
+                Blocked: {step.blocked_reason.replaceAll('_', ' ')}
+              </p>
+            ) : null}
             {step.error ? <p className="error-detail">{step.error}</p> : null}
             <details>
               <summary>Inputs and outputs</summary>

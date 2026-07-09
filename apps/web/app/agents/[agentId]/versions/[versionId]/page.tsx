@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { publishAgentVersion, saveAgentVersionDraft } from '@/app/actions';
-import { getAgent, getAgentVersion, listAgentVersions } from '@/lib/api';
+import { launchControlPlaneRun, publishAgentVersion, saveAgentVersionDraft } from '@/app/actions';
+import { getAgent, getAgentVersion, listAgentVersions, listIncidents } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +43,7 @@ export default async function AgentVersionPage({
     draft_saved?: string;
     publish_error?: string;
     version_error?: string;
+    launch_error?: string;
   }>;
 }) {
   const { agentId, versionId } = await params;
@@ -56,11 +57,16 @@ export default async function AgentVersionPage({
     typeof resolvedSearchParams?.version_error === 'string'
       ? resolvedSearchParams.version_error
       : null;
+  const launchError =
+    typeof resolvedSearchParams?.launch_error === 'string'
+      ? resolvedSearchParams.launch_error
+      : null;
 
-  const [agentResult, versionResult, versionsResult] = await Promise.all([
+  const [agentResult, versionResult, versionsResult, incidentsResult] = await Promise.all([
     getAgent(agentId),
     getAgentVersion(agentId, versionId),
     listAgentVersions(agentId, { limit: 50 }),
+    listIncidents({ limit: 25 }),
   ]);
 
   if (!agentResult.ok || !versionResult.ok) {
@@ -90,6 +96,7 @@ export default async function AgentVersionPage({
   const version = versionResult.data;
   const versions = versionsResult.ok ? versionsResult.data.versions : [];
   const drafts = versions.filter((v) => v.status === 'draft');
+  const incidents = incidentsResult.ok ? incidentsResult.data.incidents : [];
 
   return (
     <main className="dashboard-shell">
@@ -144,6 +151,29 @@ export default async function AgentVersionPage({
                 New draft from this version
               </button>
             </form>
+            <form action={launchControlPlaneRun} aria-label="Launch control-plane run">
+              <input type="hidden" name="agent_id" value={agent.id} />
+              <input type="hidden" name="agent_version_id" value={version.id} />
+              <label className="launch-incident-label" htmlFor="launch_incident_id">
+                Incident
+              </label>
+              <select id="launch_incident_id" name="incident_id" defaultValue="inc_rev_mrr_wow_drop_20260603">
+                {incidents.length === 0 ? (
+                  <option value="inc_rev_mrr_wow_drop_20260603">
+                    inc_rev_mrr_wow_drop_20260603
+                  </option>
+                ) : (
+                  incidents.map((incident) => (
+                    <option key={incident.id} value={incident.id}>
+                      {incident.id}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button className="action-button" type="submit">
+                Launch run
+              </button>
+            </form>
           </div>
         )}
       </header>
@@ -161,6 +191,11 @@ export default async function AgentVersionPage({
       {versionError ? (
         <section className="panel anomaly-panel" aria-live="polite">
           <div className="panel-message error-detail">Save failed: {versionError}</div>
+        </section>
+      ) : null}
+      {launchError ? (
+        <section className="panel anomaly-panel" aria-live="polite">
+          <div className="panel-message error-detail">Run launch failed: {launchError}</div>
         </section>
       ) : null}
 

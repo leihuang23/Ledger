@@ -55,7 +55,7 @@ export default async function AgentRunsPage() {
                   <td>
                     <Link href={`/agent/runs/${run.id}`}>{run.id}</Link>
                   </td>
-                  <td>{run.incident_id}</td>
+                  <td>{run.incident_id ?? '—'}</td>
                   <td>
                     <span className={`run-status run-status-${run.status}`}>
                       {run.status}

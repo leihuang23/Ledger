@@ -957,7 +957,8 @@ def test_disabled_tools_do_not_create_metric_evidence(
     disabled_step = next(
         step for step in payload["steps"] if step["tool_name"] == "query_revenue_metrics"
     )
-    assert disabled_step["status"] == "succeeded"
+    assert disabled_step["status"] == "blocked"
+    assert disabled_step["blocked_reason"] == "tool_not_enabled"
     assert disabled_step["outputs"]["tool_disabled"] is True
     assert disabled_step["outputs"]["sql_evidence"] == []
     assert disabled_step["outputs"]["metric_evidence"]["failed_invoice_count"] == 0

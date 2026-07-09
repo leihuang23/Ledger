@@ -16,7 +16,7 @@ def make_celery_app() -> Celery:
         "ops_agent",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["app.agent.tasks", "app.evals.tasks"],
+        include=["app.agent.tasks", "app.evals.tasks", "app.runs.tasks"],
     )
     app.conf.update(
         task_serializer="json",

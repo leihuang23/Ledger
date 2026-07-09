@@ -8,6 +8,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from celery.exceptions import SoftTimeLimitExceeded
+
 from app.agent.persistence import AgentRunRecorder
 from app.agent.persistence import utcnow_naive
 from app.agent.schemas import (
@@ -28,6 +30,8 @@ from app.db.session import SessionLocal
 from app.llm import build_llm_client_for_version
 from app.logging_config import get_logger
 from app.models import AgentRun, AgentRunStep, AgentVersion, Incident
+from app.tools.policy import can_call_tool
+from app.tools.scopes import TOOL_SCOPES
 
 ACTIVE_RUN_STALE_AFTER = timedelta(minutes=10)
 ACTIVE_RUN_STATUSES = ("queued", "running")
@@ -199,29 +203,58 @@ def _fail_running_run(
     error: Exception,
     log_message: str,
 ) -> AgentRunDetail:
-    _finish_trace(trace, error=str(error))
     session.rollback()
     failed_run = session.get(AgentRun, run_id)
     if failed_run is None:
+        _finish_trace(trace, error=str(error))
         raise error
     if failed_run.status != "running":
-        return get_run_detail(session, failed_run.id)
+        _invalidate_run_detail_cache(failed_run.id)
+        current = get_run_detail(session, failed_run.id)
+        _finish_trace(
+            trace,
+            outputs=current.final_report,
+            error=current.error,
+        )
+        return current
+    incident_id = failed_run.incident_id
     completed_at = utcnow_naive()
-    failed_run.status = "failed"
-    failed_run.error = str(error)
-    failed_run.completed_at = completed_at
-    failed_run.updated_at = completed_at
+    # Conditional UPDATE so a concurrent operator transition (e.g. force-succeed
+    # via POST /runs/{id}/transitions) in the TOCTOU window between the status
+    # check above and the commit is not overwritten by this failure finalization.
+    # Mirrors the success path (below) and mark_run_failed_on_timeout.
+    claim = session.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run_id, AgentRun.status == "running")
+        .values(
+            status="failed",
+            error=str(error),
+            completed_at=completed_at,
+            updated_at=completed_at,
+        )
+    )
+    if claim.rowcount != 1:
+        session.rollback()
+        _invalidate_run_detail_cache(run_id)
+        current = get_run_detail(session, run_id)
+        _finish_trace(
+            trace,
+            outputs=current.final_report,
+            error=current.error,
+        )
+        return current
     session.commit()
-    _invalidate_run_detail_cache(failed_run.id)
+    _invalidate_run_detail_cache(run_id)
+    _finish_trace(trace, error=str(error))
     logger.error(
         log_message,
         extra={
-            "run_id": failed_run.id,
-            "incident_id": failed_run.incident_id,
-            "error": failed_run.error,
+            "run_id": run_id,
+            "incident_id": incident_id,
+            "error": str(error),
         },
     )
-    return get_run_detail(session, failed_run.id)
+    return get_run_detail(session, run_id)
 
 
 def execute_investigation_run_with_session(
@@ -265,6 +298,7 @@ def execute_investigation_run_with_session(
     )
     if claim.rowcount != 1:
         session.rollback()
+        _invalidate_run_detail_cache(run_id)
         _finish_trace(trace, error="Agent run was already claimed.")
         logger.warning(
             "Agent run was already claimed",
@@ -275,6 +309,47 @@ def execute_investigation_run_with_session(
     session.refresh(run)
     _invalidate_run_detail_cache(run_id)
 
+    # Phase 3 execution is incident-bound (P3-T3): the v1 investigation workflow
+    # starts at intake_node which loads the incident by id. A run with no
+    # incident_id cannot drive that workflow, so fail it gracefully with a clear
+    # reason instead of letting the workflow raise an opaque
+    # "Unknown incident id: None". The schema stays nullable (FR-8) so this is a
+    # forward-compatible guard, not a schema constraint.
+    if run.incident_id is None:
+        reason = (
+            "Control-plane runs without an incident_id are not supported by "
+            "the v1 investigation workflow."
+        )
+        now = utcnow_naive()
+        claim = session.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run.id, AgentRun.status == "running")
+            .values(
+                status="failed",
+                error=reason,
+                completed_at=now,
+                updated_at=now,
+            )
+        )
+        if claim.rowcount != 1:
+            session.rollback()
+            _invalidate_run_detail_cache(run.id)
+            current = get_run_detail(session, run.id)
+            _finish_trace(
+                trace,
+                outputs=current.final_report,
+                error=current.error,
+            )
+            return current
+        session.commit()
+        _invalidate_run_detail_cache(run.id)
+        _finish_trace(trace, error=reason)
+        logger.warning(
+            "Control-plane run has no incident_id; cannot execute v1 workflow",
+            extra={"run_id": run.id},
+        )
+        return get_run_detail(session, run.id)
+
     agent_version = session.get(AgentVersion, run.agent_version_id) if run.agent_version_id else None
     version_warning: str | None = None
     fallback_version_id: str | None = None
@@ -282,30 +357,46 @@ def execute_investigation_run_with_session(
         from app.agents.service import get_default_published_version
         fallback = get_default_published_version(session)
         if fallback is None:
-            _finish_trace(
-                trace,
-                error=(
-                    f"Agent version {run.agent_version_id!r} not found and no default "
-                    "published version is available; cannot start investigation."
-                ),
+            trace_error = (
+                f"Agent version {run.agent_version_id!r} not found and no default "
+                "published version is available; cannot start investigation."
             )
-            run.status = "failed"
-            run.error = (
+            db_error = (
                 f"Agent version {run.agent_version_id!r} not found and no default "
                 "published version is available. Seed the database or create a "
                 "default agent before running investigations."
             )
-            run.completed_at = utcnow_naive()
-            run.updated_at = run.completed_at
+            now = utcnow_naive()
+            claim = session.execute(
+                update(AgentRun)
+                .where(AgentRun.id == run.id, AgentRun.status == "running")
+                .values(
+                    status="failed",
+                    error=db_error,
+                    completed_at=now,
+                    updated_at=now,
+                )
+            )
+            if claim.rowcount != 1:
+                session.rollback()
+                _invalidate_run_detail_cache(run.id)
+                current = get_run_detail(session, run.id)
+                _finish_trace(
+                    trace,
+                    outputs=current.final_report,
+                    error=current.error,
+                )
+                return current
             session.commit()
             _invalidate_run_detail_cache(run.id)
+            _finish_trace(trace, error=trace_error)
             logger.error(
                 "Cannot start investigation: no agent version available",
                 extra={"run_id": run.id, "requested_version_id": run.agent_version_id},
             )
             return get_run_detail(session, run.id)
         llm_client = build_llm_client_for_version(fallback)
-        enabled_tool_ids: set[str] = set(fallback.enabled_tool_ids or [])
+        resolved_version = fallback
         requested_version_id = run.agent_version_id
         version_warning = (
             f"Agent version {requested_version_id!r} not found; falling back "
@@ -342,7 +433,7 @@ def execute_investigation_run_with_session(
         session.flush()
     else:
         llm_client = build_llm_client_for_version(agent_version)
-        enabled_tool_ids = set(agent_version.enabled_tool_ids or [])
+        resolved_version = agent_version
     if version_warning:
         logger.warning(
             "Agent version fallback during execution",
@@ -355,11 +446,38 @@ def execute_investigation_run_with_session(
         )
         session.commit()
         session.refresh(run)
+    # PRD FR-7: enforce the agent version's tool permission policy at dispatch
+    # time. A tool is callable iff it is in ``enabled_tool_ids`` AND its scope is
+    # in ``allowed_scopes`` (app.tools.policy.can_call_tool). Tools failing either
+    # check are recorded as visible ``blocked`` steps with a granular reason
+    # rather than dispatched. Filtering ``effective_enabled`` here (not just
+    # collecting reasons) ensures a scope-revoked tool hits the blocked path
+    # instead of being dispatched.
+    effective_enabled: set[str] = set()
+    blocked_reasons: dict[str, str] = {}
+    for tool_id in TOOL_SCOPES:
+        allowed, reason = can_call_tool(resolved_version, tool_id)
+        if allowed:
+            effective_enabled.add(tool_id)
+        else:
+            blocked_reasons[tool_id] = reason
+
     try:
         report = run_investigation_workflow(
             session, run, trace, llm_client=llm_client,
-            enabled_tool_ids=enabled_tool_ids,
+            enabled_tool_ids=effective_enabled,
+            blocked_reasons=blocked_reasons,
         )
+    except SoftTimeLimitExceeded:
+        # The Celery soft time limit fired mid-workflow. Finish the trace with
+        # the clean timeout reason before re-raising so the root observation is
+        # finalized on observability backends (Langfuse/Langsmith) instead of
+        # being left dangling -- the task's timeout handler runs in a fresh
+        # session without access to this trace handle. Then re-raise so the
+        # task marks the run failed with ``soft_time_limit_exceeded`` and
+        # Celery records the timeout as the task failure.
+        _finish_trace(trace, error="soft_time_limit_exceeded")
+        raise
     except Exception as exc:
         return _fail_running_run(
             session,
@@ -373,6 +491,12 @@ def execute_investigation_run_with_session(
     finished_run = session.get(AgentRun, run.id)
     if finished_run is None:
         raise RuntimeError(f"Agent run disappeared: {run.id}")
+    # Sync the identity map with the DB so a concurrent operator transition
+    # (e.g. force-fail via POST /runs/{id}/transitions) is detected instead of
+    # being silently overwritten by the success finalization below. Without
+    # this refresh, session.get may return a stale "running" status after the
+    # recorder's periodic commits expired the object.
+    session.refresh(finished_run)
     if finished_run.status != "running":
         _finish_trace(
             trace,
@@ -383,10 +507,40 @@ def execute_investigation_run_with_session(
         )
         _invalidate_run_detail_cache(finished_run.id)
         return get_run_detail(session, finished_run.id)
-    finished_run.status = "succeeded"
-    finished_run.error = None
-    finished_run.final_report = report.model_dump(mode="json")
-    finished_run.updated_at = completed_at
+    # Conditional UPDATE so a concurrent transition between the refresh and
+    # the commit does not overwrite the operator's action (mirrors
+    # mark_run_failed_on_timeout and transition_run). Committing the success
+    # state here -- before action proposal -- also prevents the recorder's
+    # periodic commits inside _propose_report_actions from flushing a stale
+    # "succeeded" over a concurrent force-fail.
+    claim = session.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run.id, AgentRun.status == "running")
+        .values(
+            status="succeeded",
+            error=None,
+            final_report=report.model_dump(mode="json"),
+            completed_at=completed_at,
+            updated_at=completed_at,
+        )
+    )
+    if claim.rowcount != 1:
+        session.rollback()
+        _invalidate_run_detail_cache(run.id)
+        current = get_run_detail(session, run.id)
+        _finish_trace(
+            trace,
+            outputs=current.final_report,
+            error=current.error
+            or "Concurrent status change prevented success finalization.",
+        )
+        return current
+    session.commit()
+    # Invalidate immediately so a GET between this success commit and the
+    # action-proposal block does not surface a stale "running" detail for up
+    # to RUN_DETAIL_CACHE_TTL_SECONDS.
+    _invalidate_run_detail_cache(run.id)
+    session.refresh(finished_run)
 
     try:
         _propose_report_actions(session, finished_run, report, trace)
@@ -395,31 +549,46 @@ def execute_investigation_run_with_session(
         failed_run = session.get(AgentRun, finished_run.id)
         if failed_run is None:
             raise
+        error_msg = f"Action proposal failed: {exc}"
         completed_at = utcnow_naive()
-        failed_run.status = "failed"
-        failed_run.error = f"Action proposal failed: {exc}"
-        failed_run.completed_at = completed_at
-        failed_run.updated_at = completed_at
-        _finish_trace(trace, outputs=failed_run.final_report, error=failed_run.error)
+        # Conditional UPDATE for consistency with all other terminal writes.
+        # ``succeeded`` is terminal so no operator transition can race here,
+        # but the conditional pattern keeps the invariant uniform.
+        claim = session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == finished_run.id, AgentRun.status == "succeeded"
+            )
+            .values(
+                status="failed",
+                error=error_msg,
+                completed_at=completed_at,
+                updated_at=completed_at,
+            )
+        )
+        _finish_trace(
+            trace, outputs=failed_run.final_report, error=error_msg
+        )
+        if claim.rowcount != 1:
+            session.rollback()
+            _invalidate_run_detail_cache(finished_run.id)
+            return get_run_detail(session, finished_run.id)
         session.commit()
-        _invalidate_run_detail_cache(failed_run.id)
+        _invalidate_run_detail_cache(finished_run.id)
         logger.error(
             "Action proposal failed",
             extra={
-                "run_id": failed_run.id,
+                "run_id": finished_run.id,
                 "incident_id": failed_run.incident_id,
-                "error": failed_run.error,
+                "error": error_msg,
             },
         )
-        return get_run_detail(session, failed_run.id)
+        return get_run_detail(session, finished_run.id)
 
-    finished_run = session.get(AgentRun, run.id)
-    if finished_run is None:
-        raise RuntimeError(f"Agent run disappeared: {run.id}")
-    completed_at = utcnow_naive()
-    finished_run.status = "succeeded"
-    finished_run.completed_at = completed_at
-    finished_run.updated_at = completed_at
+    # The success state was already committed above; the recorder may have
+    # added step rows during action proposal, so commit those and refresh the
+    # cache. Redundant status/completed_at re-assignment dropped — already
+    # persisted by the conditional UPDATE above.
     _finish_trace(trace, outputs=finished_run.final_report)
     session.commit()
     _invalidate_run_detail_cache(finished_run.id)
@@ -508,6 +677,11 @@ def _invalidate_run_detail_cache(run_id: str) -> None:
     Cache().delete(_run_detail_cache_key(run_id))
 
 
+def invalidate_run_detail_cache(run_id: str) -> None:
+    """Public cache-invalidation hook for cross-domain callers (e.g. runs)."""
+    _invalidate_run_detail_cache(run_id)
+
+
 def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
     cache = Cache()
     cache_key = _run_detail_cache_key(run_id)
@@ -592,6 +766,7 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
                 inputs=step.inputs,
                 outputs=step.outputs,
                 error=step.error,
+                blocked_reason=step.blocked_reason,
                 started_at=step.started_at,
                 completed_at=step.completed_at,
             )
@@ -616,10 +791,31 @@ def _abandon_orphaned_runs(session: Session, incident_id: str) -> None:
     if not orphaned_runs:
         return
 
+    claimed_ids: list[str] = []
     for run in orphaned_runs:
         if _run_last_activity_at(session, run) < cutoff:
-            _mark_run_interrupted(run, now=now)
-    session.commit()
+            if _mark_run_interrupted(session, run, now=now):
+                claimed_ids.append(run.id)
+    if claimed_ids:
+        session.commit()
+        for rid in claimed_ids:
+            _invalidate_run_detail_cache(rid)
+
+
+def abandon_orphaned_runs_for_incident(
+    session: Session, incident_id: str
+) -> None:
+    """Reap stale active runs for a single incident before a new launch.
+
+    Thin public wrapper around ``_abandon_orphaned_runs`` so the control-plane
+    creator (``app.runs.service.create_control_plane_run``) can mirror the
+    incident-bound creator's pre-insert self-heal without importing a
+    module-private symbol. A crashed worker leaves a run stuck in ``running``;
+    without this, ``POST /runs`` against that incident returns 409 (partial
+    unique index) with no recovery until an API restart or a manual
+    ``POST /runs/{id}/transitions`` to force-fail.
+    """
+    _abandon_orphaned_runs(session, incident_id)
 
 
 def abandon_orphaned_active_runs(session: Session) -> int:
@@ -632,12 +828,16 @@ def abandon_orphaned_active_runs(session: Session) -> int:
         )
     ).all()
     abandoned_count = 0
+    claimed_ids: list[str] = []
     for run in orphaned_runs:
         if _run_last_activity_at(session, run) < cutoff:
-            _mark_run_interrupted(run, now=now)
-            abandoned_count += 1
-    if abandoned_count:
+            if _mark_run_interrupted(session, run, now=now):
+                claimed_ids.append(run.id)
+                abandoned_count += 1
+    if claimed_ids:
         session.commit()
+        for rid in claimed_ids:
+            _invalidate_run_detail_cache(rid)
     return abandoned_count
 
 
@@ -678,8 +878,9 @@ def _abandon_orphaned_run(session: Session, run: AgentRun) -> None:
     now = utcnow_naive()
     if not _run_is_stale(session, run, now=now):
         return
-    _mark_run_interrupted(run, now=now)
-    session.commit()
+    if _mark_run_interrupted(session, run, now=now):
+        session.commit()
+        _invalidate_run_detail_cache(run.id)
 
 
 def _run_is_stale(
@@ -691,11 +892,31 @@ def _run_is_stale(
     return _run_last_activity_at(session, run) < now - ACTIVE_RUN_STALE_AFTER
 
 
-def _mark_run_interrupted(run: AgentRun, *, now: datetime) -> None:
-    run.status = "failed"
-    run.error = run.error or "Investigation interrupted before completion."
-    run.completed_at = run.completed_at or now
-    run.updated_at = now
+def _mark_run_interrupted(
+    session: Session, run: AgentRun, *, now: datetime
+) -> bool:
+    """Conditionally mark a stale active run as failed (interrupted).
+
+    Uses a conditional UPDATE so a concurrent transition (e.g. operator
+    force-succeed via POST /runs/{id}/transitions) is not overwritten —
+    mirroring ``mark_run_failed_on_timeout``. Returns ``True`` if this call
+    claimed the run, ``False`` if a concurrent writer already moved it out of
+    the active set.
+    """
+    claim = session.execute(
+        update(AgentRun)
+        .where(
+            AgentRun.id == run.id,
+            AgentRun.status.in_(ACTIVE_RUN_STATUSES),
+        )
+        .values(
+            status="failed",
+            error=run.error or "Investigation interrupted before completion.",
+            completed_at=run.completed_at or now,
+            updated_at=now,
+        )
+    )
+    return claim.rowcount == 1
 
 
 def _run_last_activity_at(session: Session, run: AgentRun) -> datetime:
