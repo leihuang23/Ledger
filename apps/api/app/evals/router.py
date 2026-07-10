@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.agent.persistence import utcnow_naive
-from app.agents.service import PHASE6_AGENT_VERSION_ID
+from app.agents.service import DEFAULT_AGENT_ID, DEFAULT_AGENT_VERSION_ID
 from app.core.access import require_demo_data_access
 from app.core.config import get_settings
 from app.core.limiter import limiter
@@ -71,14 +71,22 @@ def run_evals(
     response: Response,
     db: Session = Depends(get_db),
 ) -> EvalRunSummary:
-    version = db.get(AgentVersion, PHASE6_AGENT_VERSION_ID)
+    version = db.get(AgentVersion, DEFAULT_AGENT_VERSION_ID)
     if version is None or version.status != "published":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The Phase 6 eval baseline is unavailable.",
+            detail="The Project1 v1 eval baseline is unavailable.",
         )
     allowed, blocked_reason = can_call_tool(version, "run_eval")
-    if not allowed:
+    # This token-gated endpoint is the Project1 compatibility surface and
+    # predates the governed run_eval capability. The exact immutable v1 may
+    # therefore run here despite lacking that tool ID/scope. Phase 5 dataset
+    # runs and every non-v1 candidate continue through strict can_call_tool.
+    is_project1_v1 = (
+        version.id == DEFAULT_AGENT_VERSION_ID
+        and version.agent_id == DEFAULT_AGENT_ID
+    )
+    if not allowed and not is_project1_v1:
         reason = blocked_reason or "tool_not_enabled"
         blocked_run_id = record_blocked_control_plane_tool_attempt(
             db,

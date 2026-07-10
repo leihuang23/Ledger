@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { openIncidentFromAnomaly } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import type {
   DashboardMetrics,
   IncidentListResult,
@@ -22,10 +23,12 @@ import {
   formatPercent,
   formatScenario,
 } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 type HomeProps = {
   searchParams?: Promise<{
     incident_error?: string;
+    read_only?: string;
   }>;
 };
 
@@ -42,6 +45,7 @@ export default async function Home({ searchParams }: HomeProps) {
     typeof resolvedSearchParams?.incident_error === 'string'
       ? resolvedSearchParams.incident_error
       : null;
+  const redirectedFromMutation = resolvedSearchParams?.read_only === '1';
 
   return (
     <main className="dashboard-shell">
@@ -70,6 +74,14 @@ export default async function Home({ searchParams }: HomeProps) {
       {incidentError ? (
         <section className="panel anomaly-panel" aria-live="polite">
           <div className="panel-message error-detail">{incidentError}</div>
+        </section>
+      ) : null}
+
+      {redirectedFromMutation ? (
+        <section className="panel anomaly-panel" aria-live="polite">
+          <div className="panel-message">
+            This public deployment is read-only. No operator action was performed.
+          </div>
         </section>
       ) : null}
 
@@ -318,6 +330,7 @@ function AnomalyPanel({ result }: { result: RevenueAnomaliesResult }) {
 }
 
 function AnomalyRow({ anomaly }: { anomaly: RevenueAnomaly }) {
+  const mutationsEnabled = operatorMutationsEnabled();
   const affectedAccountNames = anomaly.affected_accounts
     .slice(0, 4)
     .map((account) => account.account_name)
@@ -338,11 +351,14 @@ function AnomalyRow({ anomaly }: { anomaly: RevenueAnomaly }) {
             View incident
           </Link>
         ) : (
-          <form action={openIncidentFromAnomaly}>
+          <form action={openIncidentFromAnomaly} className="operator-control-stack">
             <input name="anomaly_id" type="hidden" value={anomaly.id} />
-            <button className="action-button" type="submit">
+            <button className="action-button" disabled={!mutationsEnabled} type="submit">
               Open incident
             </button>
+            {!mutationsEnabled ? (
+              <ReadOnlyOperatorNotice className="operator-read-only-note-compact" />
+            ) : null}
           </form>
         )}
       </div>

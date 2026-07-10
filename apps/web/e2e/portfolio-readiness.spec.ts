@@ -4,6 +4,11 @@ const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL ?? 'http://localhost:8000
 const baselineVersionId = 'revenue-ops-agent_phase6';
 
 test.describe.serial('Phase 6 portfolio readiness', () => {
+  // This suite mutates one shared portfolio environment across tests. Retrying a
+  // partially completed serial suite would reuse published versions and approval
+  // decisions, obscuring the original failure with state left by the first attempt.
+  test.describe.configure({ retries: 0 });
+
   let reviewedVersionId = '';
 
   test('publish a governed version and expose its blocked tool step', async ({ page, request }) => {

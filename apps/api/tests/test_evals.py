@@ -26,6 +26,7 @@ from app.evals.runner import (
 from app.main import app
 from app.agents.service import (
     DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_VERSION_ID,
     PHASE6_AGENT_VERSION_ID,
 )
 from app.models import AgentRun, AgentVersion, EvalCase, EvalResult
@@ -76,6 +77,9 @@ def test_eval_suite_persists_scoring_shape_and_trace_links(
 
         assert summary.total_scenarios == 6
         assert summary.passed_scenarios >= 4
+        assert {result.agent_version_id for result in summary.results} == {
+            DEFAULT_AGENT_VERSION_ID
+        }
         assert len(summary.results) == 6
         assert all(result.status in {"passed", "failed"} for result in summary.results)
         assert all(0 <= result.root_cause_score <= 1 for result in summary.results)
@@ -101,7 +105,7 @@ def test_eval_suite_persists_scoring_shape_and_trace_links(
         assert all(run.trace_provider in {"langfuse", "langsmith", "local"} for run in runs)
 
 
-def test_legacy_eval_suite_is_pinned_to_the_phase6_baseline(
+def test_legacy_eval_suite_is_pinned_to_project1_v1(
     session_factory: Callable[[], Session],
 ) -> None:
     with session_factory() as session:
@@ -133,7 +137,26 @@ def test_legacy_eval_suite_is_pinned_to_the_phase6_baseline(
         summary = run_eval_suite(session)
 
     assert {result.agent_version_id for result in summary.results} == {
-        PHASE6_AGENT_VERSION_ID
+        DEFAULT_AGENT_VERSION_ID
+    }
+
+
+def test_mrr_drop_suite_explicit_project1_v1_meets_release_threshold(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+
+        summary = run_eval_suite(
+            session,
+            dataset_id="mrr-drop-suite",
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
+        )
+
+    assert summary.total_scenarios == 6
+    assert summary.passed_scenarios >= 4
+    assert {result.agent_version_id for result in summary.results} == {
+        DEFAULT_AGENT_VERSION_ID
     }
 
 
@@ -383,7 +406,7 @@ def test_eval_api_runs_suite_and_lists_latest_results(
     assert all("root_cause_score" in result for result in results_payload["results"])
 
 
-def test_legacy_eval_api_records_phase6_permission_blocks(
+def test_legacy_eval_api_uses_project1_v1_compatibility_baseline(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -401,6 +424,7 @@ def test_legacy_eval_api_records_phase6_permission_blocks(
             yield db
 
     monkeypatch.setenv("EVAL_RUN_TOKEN", "eval-token")
+    monkeypatch.setattr("app.evals.router._enqueue_eval_suite", lambda _run_id: None)
     get_settings.cache_clear()
     app.dependency_overrides[get_db] = override_get_db
     try:
@@ -412,16 +436,9 @@ def test_legacy_eval_api_records_phase6_permission_blocks(
         app.dependency_overrides.clear()
         get_settings.cache_clear()
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "run_eval blocked: scope_not_allowed"
-    blocked_run_id = response.headers["X-Agent-Run-Id"]
+    assert response.status_code == 202
     with session_factory() as session:
-        blocked_run = session.get(AgentRun, blocked_run_id)
-        assert blocked_run is not None
-        assert blocked_run.status == "failed"
-        assert blocked_run.agent_version_id == PHASE6_AGENT_VERSION_ID
-        assert blocked_run.steps[-1].tool_name == "run_eval"
-        assert blocked_run.steps[-1].status == "blocked"
+        assert session.scalar(select(AgentRun)) is None
 
 
 def test_eval_suite_persists_failed_result_when_one_case_raises(

@@ -25,8 +25,12 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun
-from app.runs.service import create_control_plane_run, transition_run
+from app.models import AgentRun, AgentRunStep
+from app.runs.service import (
+    create_control_plane_run,
+    record_blocked_control_plane_tool_attempt,
+    transition_run,
+)
 from app.seed import reseed_database
 
 # The canonical seeded checkout-retry-regression incident (used by docker-smoke
@@ -217,6 +221,42 @@ def test_control_plane_run_allows_nullable_incident_id(
     assert detail.incident_id is None
     assert detail.agent_version_id == DEFAULT_AGENT_VERSION_ID
     assert detail.status == "queued"
+
+
+def test_blocked_control_plane_attempt_commits_complete_audit_once(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denied operation has no worker, so it must never expose an active state."""
+    _seed(session_factory)
+    with session_factory() as session:
+        commit_count = 0
+        original_commit = session.commit
+
+        def counted_commit() -> None:
+            nonlocal commit_count
+            commit_count += 1
+            original_commit()
+
+        monkeypatch.setattr(session, "commit", counted_commit)
+        run_id = record_blocked_control_plane_tool_attempt(
+            session,
+            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            tool_name="run_eval",
+            blocked_reason="scope_not_allowed",
+            input_payload={"operation": "run_eval", "dataset_id": "mrr-drop-suite"},
+        )
+
+        assert commit_count == 1
+        session.expire_all()
+        run = session.get(AgentRun, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.started_at is not None
+        assert run.completed_at is not None
+        step = session.query(AgentRunStep).filter_by(run_id=run_id).one()
+        assert step.status == "blocked"
+        assert step.blocked_reason == "scope_not_allowed"
 
 
 def test_illegal_run_transition_returns_409(

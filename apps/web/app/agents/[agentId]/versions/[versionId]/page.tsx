@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { launchControlPlaneRun, publishAgentVersion, saveAgentVersionDraft } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import {
   getAgent,
   getAgentVersion,
@@ -10,6 +11,7 @@ import {
   listTools,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +41,7 @@ export default async function AgentVersionPage({
   }>;
 }) {
   const { agentId, versionId } = await params;
+  const mutationsEnabled = operatorMutationsEnabled();
   const resolvedSearchParams = await searchParams;
   const draftSaved = resolvedSearchParams?.draft_saved === '1';
   const publishError =
@@ -140,17 +143,24 @@ export default async function AgentVersionPage({
             <form action={publishAgentVersion}>
               <input type="hidden" name="agent_id" value={agent.id} />
               <input type="hidden" name="version_id" value={version.id} />
-              <button className="action-button" type="submit">
+              <button className="action-button" disabled={!mutationsEnabled} type="submit">
                 Publish version
               </button>
             </form>
+            {!mutationsEnabled ? (
+              <ReadOnlyOperatorNotice className="operator-read-only-note-compact" />
+            ) : null}
           </div>
         ) : (
           <div className="header-actions">
             <form action={saveAgentVersionDraft}>
               <input type="hidden" name="agent_id" value={agent.id} />
               <input type="hidden" name="base_version_id" value={version.id} />
-              <button className="action-button secondary-action" type="submit">
+              <button
+                className="action-button secondary-action"
+                disabled={!mutationsEnabled}
+                type="submit"
+              >
                 New draft from this version
               </button>
             </form>
@@ -160,7 +170,12 @@ export default async function AgentVersionPage({
               <label className="launch-incident-label" htmlFor="launch_incident_id">
                 Incident
               </label>
-              <select id="launch_incident_id" name="incident_id" defaultValue="inc_rev_mrr_wow_drop_20260603">
+              <select
+                id="launch_incident_id"
+                name="incident_id"
+                defaultValue="inc_rev_mrr_wow_drop_20260603"
+                disabled={!mutationsEnabled}
+              >
                 {incidents.length === 0 ? (
                   <option value="inc_rev_mrr_wow_drop_20260603">
                     inc_rev_mrr_wow_drop_20260603
@@ -173,10 +188,13 @@ export default async function AgentVersionPage({
                   ))
                 )}
               </select>
-              <button className="action-button" type="submit">
+              <button className="action-button" disabled={!mutationsEnabled} type="submit">
                 Launch run
               </button>
             </form>
+            {!mutationsEnabled ? (
+              <ReadOnlyOperatorNotice className="operator-read-only-note-compact" />
+            ) : null}
           </div>
         )}
       </header>
@@ -233,6 +251,7 @@ export default async function AgentVersionPage({
 
       {version.status === 'draft' ? (
         <form action={saveAgentVersionDraft} className="report-grid">
+          {!mutationsEnabled ? <ReadOnlyOperatorNotice className="report-panel-wide" /> : null}
           <input type="hidden" name="agent_id" value={agent.id} />
           <input type="hidden" name="version_id" value={version.id} />
           <input type="hidden" name="return_to" value={`/agents/${agent.id}/versions/${version.id}`} />
@@ -249,6 +268,7 @@ export default async function AgentVersionPage({
                 defaultValue={version.system_prompt}
                 rows={18}
                 aria-label="System prompt"
+                disabled={!mutationsEnabled}
               />
             </div>
           </section>
@@ -266,6 +286,7 @@ export default async function AgentVersionPage({
                   className="field-input"
                   defaultValue={version.model}
                   list="model-suggestions"
+                  disabled={!mutationsEnabled}
                 />
                 <datalist id="model-suggestions">
                   {COMMON_MODELS.map((m) => (
@@ -283,6 +304,7 @@ export default async function AgentVersionPage({
                   step="0.1"
                   defaultValue={version.temperature}
                   className="field-range"
+                  disabled={!mutationsEnabled}
                 />
               </label>
               <label className="field-label">
@@ -294,6 +316,7 @@ export default async function AgentVersionPage({
                   defaultValue={version.max_tokens}
                   min="100"
                   max="16384"
+                  disabled={!mutationsEnabled}
                 />
               </label>
             </div>
@@ -313,6 +336,7 @@ export default async function AgentVersionPage({
                     name="enabled_tool_ids"
                     value={toolId}
                     defaultChecked={version.enabled_tool_ids.includes(toolId)}
+                    disabled={!mutationsEnabled}
                   />
                   <span>
                     <strong>{toolLabels[toolId] ?? toolId}</strong>
@@ -341,6 +365,7 @@ export default async function AgentVersionPage({
                     name="allowed_scopes"
                     value={scope}
                     defaultChecked={version.allowed_scopes.includes(scope)}
+                    disabled={!mutationsEnabled}
                   />
                   <code>{scope}</code>
                 </label>
@@ -379,7 +404,7 @@ export default async function AgentVersionPage({
               </div>
             </div>
             <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-              <button className="action-button" type="submit">
+              <button className="action-button" disabled={!mutationsEnabled} type="submit">
                 Save draft
               </button>
             </div>

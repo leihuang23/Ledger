@@ -1,6 +1,6 @@
 # Phase 6 Portfolio Sign-off
 
-Status: local implementation and verification complete. Review-swarm and pull-request CI are the remaining release gates.
+Status: comprehensive PR review and local remediation are complete. Pull-request CI is the remaining release gate.
 
 This record maps the Project 2 success criteria to durable evidence. Test counts and CI links are updated only after fresh runs complete.
 
@@ -22,13 +22,13 @@ This record maps the Project 2 success criteria to durable evidence. Test counts
 
 Fresh local results from July 10, 2026:
 
-- Backend: `345 passed, 1 skipped` with host-correct Postgres and Redis URLs.
+- Backend: `353 passed, 2 skipped` with local Postgres and Redis available; the skips are environment/optional-path guards.
 - Ruff: all API checks passed.
-- Alembic migration tests: `13 passed`; migration `20260710_0015` preserves existing published snapshots and publishes the expanded governed catalog as `revenue-ops-agent_phase6`.
-- Deterministic eval CLI: the immutable Phase 6 baseline passed `6/6` cases in `1.36` seconds (`evalrun_145e7e7885194e53`); the fresh Phase 6 comparison shows `6/6` versus `5/6` for the intentionally document-search-disabled candidate.
-- Frontend: `11` contract tests passed; TypeScript and the production Next.js build passed.
+- Alembic migration coverage includes deterministic v1 sourcing, upgrade/downgrade/re-upgrade, referenced-snapshot fail-closed behavior, bootstrap repair, and a real isolated PostgreSQL `0009 -> HEAD -> bootstrap` pass.
+- Deterministic eval CLI: Project 1 compatibility remains pinned to immutable v1 and passes at least `4/5`; the explicit Phase 6 comparison remains the portfolio baseline at `6/6` versus `5/6` for the intentionally document-search-disabled candidate.
+- Frontend: `13` contract tests passed; TypeScript and the production Next.js build passed.
 - Docker: Postgres, Redis, API, and web health checks passed; the Celery worker was running and processing eval jobs.
-- Playwright: `8 passed` with one serial worker against the shared seeded environment, covering the demo, ambiguity/rejection, control-plane run, eval comparison, approval filters, governed-version UAT, blocked tool visibility, and observability drill-down.
+- Playwright: `8 passed, 1 skipped` in operator mode with one serial worker; the conditional public read-only test passed separately against `OPERATOR_UI_ENABLED=false`.
 - Portfolio assets: both PNGs were inspected at `1440x900`; the WebM duration is `195.8` seconds.
 - Performance: the 10,000-run dashboard aggregate completed in `43.2 ms`; 30-request live p95 samples were `/agents 2.8 ms`, `/dashboard/agents 3.3 ms`, `/runs 5.5 ms`, and `/tools 5.0 ms`, all below the `500 ms` target.
 - Live safety smoke: anonymous gated eval execution returned `403`; the same request succeeded only after the local test token was supplied.

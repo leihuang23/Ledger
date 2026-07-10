@@ -82,6 +82,37 @@ textarea:focus-visible,
   font-weight: 700;
 }
 
+.operator-read-only-note {
+  max-width: 52ch;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.operator-read-only-note-compact {
+  max-width: 320px;
+}
+
+.operator-control-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.approval-panel > .operator-read-only-note {
+  margin: 16px;
+}
+
+.eval-control-form > .operator-read-only-note {
+  grid-column: 1 / -1;
+}
+
 #main-content:focus {
   outline: none;
 }

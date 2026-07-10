@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { startInvestigationFromIncident } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import { getIncident, listAgents, listAgentVersions } from '@/lib/api';
 import {
   formatCount,
@@ -10,6 +11,7 @@ import {
   formatPercent,
   formatScenario,
 } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 type IncidentPageProps = {
   params: Promise<{
@@ -72,6 +74,7 @@ export default async function IncidentPage({ params, searchParams }: IncidentPag
     typeof resolvedSearchParams?.investigation_error === 'string'
       ? resolvedSearchParams.investigation_error
       : null;
+  const mutationsEnabled = operatorMutationsEnabled();
 
   if (!incidentResult.ok) {
     return (
@@ -148,6 +151,7 @@ export default async function IncidentPage({ params, searchParams }: IncidentPag
                   name="agent_version_id"
                   className="field-select"
                   defaultValue={defaultVersion?.version_id}
+                  disabled={!mutationsEnabled}
                   aria-label="Select agent version"
                 >
                   {publishedVersions.map((version) => (
@@ -160,10 +164,13 @@ export default async function IncidentPage({ params, searchParams }: IncidentPag
             ) : defaultVersion ? (
               <input name="agent_version_id" type="hidden" value={defaultVersion.version_id} />
             ) : null}
-            <button className="action-button" type="submit">
+            <button className="action-button" disabled={!mutationsEnabled} type="submit">
               Run investigation
             </button>
           </form>
+          {!mutationsEnabled ? (
+            <ReadOnlyOperatorNotice className="operator-read-only-note-compact" />
+          ) : null}
           <Link className="action-button secondary-action" href="/agents">
             Agents
           </Link>

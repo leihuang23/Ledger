@@ -22,12 +22,11 @@ from app.agent.persistence import AgentRunRecorder, utcnow_naive
 from app.agents.service import (
     DEFAULT_AGENT_ID,
     DEFAULT_AGENT_VERSION_ID,
-    PHASE6_AGENT_VERSION_ID,
 )
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun, AgentRunStep, Incident
+from app.models import AgentRun, AgentRunStep, AgentVersion, Incident
 from app.seed import reseed_database
 
 
@@ -170,6 +169,59 @@ def test_investigation_run_produces_structured_evidence_backed_report(
     assert all(step["status"] == "succeeded" for step in tool_steps)
 
 
+def test_project1_v1_preserves_legacy_actions_without_mutating_snapshot(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id).order_by(Incident.id))
+        version = session.get(AgentVersion, DEFAULT_AGENT_VERSION_ID)
+        assert incident_id is not None
+        assert version is not None
+        original_tool_ids = list(version.enabled_tool_ids)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        response = TestClient(app).post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "run_inline": True,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
+    assert {action["action_type"] for action in payload["mock_actions"]} == {
+        "draft_slack_message",
+        "draft_customer_email",
+        "create_task",
+        "update_account_note",
+    }
+    assert sum(
+        action["approval_request"] is not None for action in payload["mock_actions"]
+    ) == 2
+
+    with session_factory() as session:
+        version = session.get(AgentVersion, DEFAULT_AGENT_VERSION_ID)
+        assert version is not None
+        assert version.enabled_tool_ids == original_tool_ids
+        assert version.enabled_tool_ids == [
+            "query_revenue_metrics",
+            "fetch_account_details",
+            "search_docs",
+            "fetch_support_tickets",
+        ]
+
+
 def test_default_investigation_launch_returns_queued_run_then_completes(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,
@@ -236,7 +288,7 @@ def test_investigation_start_restarts_after_orphaned_running_run(
             id="run_orphaned_running",
             incident_id=incident_id,
             agent_id=DEFAULT_AGENT_ID,
-            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
             status="running",
             trace_id="local-test-trace",
             input_payload={"incident_id": incident_id},
@@ -345,7 +397,7 @@ def test_investigation_start_reuses_active_queued_run_by_default(
             id="run_active_queued",
             incident_id=incident_id,
             agent_id=DEFAULT_AGENT_ID,
-            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
             status="queued",
             trace_id=None,
             input_payload={"incident_id": incident_id},
@@ -752,7 +804,7 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
             id="run_success_before_actions",
             incident_id=incident_id,
             agent_id=DEFAULT_AGENT_ID,
-            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
             status="succeeded",
             trace_id="local-test-trace",
             input_payload={"incident_id": incident_id},
@@ -777,7 +829,11 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id, "run_inline": True},
+            json={
+                "incident_id": incident_id,
+                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "run_inline": True,
+            },
         )
     finally:
         app.dependency_overrides.clear()
@@ -791,6 +847,9 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
         "create_task",
         "update_account_note",
     }
+    assert sum(
+        action["approval_request"] is not None for action in payload["mock_actions"]
+    ) == 2
 
 
 def test_investigation_with_no_affected_accounts_finishes_with_uncertainty(
@@ -1318,7 +1377,7 @@ def test_idempotency_key_separates_explicit_and_default_version_selectors(
     assert second.status_code == 201
     assert first.json()["id"] != second.json()["id"]
     assert first.json()["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
-    assert second.json()["agent_version_id"] == PHASE6_AGENT_VERSION_ID
+    assert second.json()["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
 
 
 def test_default_version_idempotency_key_is_stable_across_new_publish(
@@ -1383,8 +1442,8 @@ def test_default_version_idempotency_key_is_stable_across_new_publish(
     first_payload = first.json()
     second_payload = second.json()
     assert second_payload["id"] == first_payload["id"]
-    assert first_payload["agent_version_id"] == PHASE6_AGENT_VERSION_ID
-    assert second_payload["agent_version_id"] == PHASE6_AGENT_VERSION_ID
+    assert first_payload["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
+    assert second_payload["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
 
 
 def test_idempotency_key_does_not_reuse_different_agent_version(

@@ -19,7 +19,6 @@ from app.agent.service import start_investigation_run
 from app.agents.service import (
     DEFAULT_AGENT_ID,
     DEFAULT_AGENT_VERSION_ID,
-    PHASE6_AGENT_VERSION_ID,
 )
 from app.celery_app import CELERY_TASK_TIME_LIMIT
 from app.db.session import SessionLocal
@@ -67,10 +66,10 @@ def run_eval_suite(
     dataset_id: str | None = None,
     agent_version_id: str | None = None,
 ) -> EvalRunSummary:
-    # The legacy/CLI suite is pinned to the immutable Phase 6 release baseline,
-    # not "whatever was published most recently" in a mutable demo database.
-    # Dataset runs pass an explicit candidate id and evaluate that version.
-    effective_agent_version_id = agent_version_id or PHASE6_AGENT_VERSION_ID
+    # The legacy/CLI suite remains pinned to the immutable Project1 v1 baseline.
+    # Phase 5 dataset runs pass an explicit candidate id (including Phase 6)
+    # and evaluate that selected version instead.
+    effective_agent_version_id = agent_version_id or DEFAULT_AGENT_VERSION_ID
     case_stmt = select(EvalCase)
     if dataset_id is not None:
         case_stmt = case_stmt.join(

@@ -13,11 +13,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.agent.persistence import AgentRunRecorder, utcnow_naive
+from app.agent.persistence import utcnow_naive
 from app.agent.schemas import AgentRunDetail, AgentRunSummary
 from app.agent.service import (
     abandon_orphaned_runs_for_incident,
@@ -26,7 +27,7 @@ from app.agent.service import (
 )
 from app.agents.service import get_published_version
 from app.logging_config import get_logger
-from app.models import AgentRun, Incident
+from app.models import AgentRun, AgentRunStep, AgentVersion, Incident
 from app.runs.lifecycle import validate_operator_transition
 
 logger = get_logger(__name__)
@@ -41,6 +42,29 @@ class RunConflictError(Exception):
     router maps this to HTTP 409 so the caller can retry or inspect the
     in-flight run rather than receiving an opaque 500.
     """
+
+
+def _control_plane_input_payload(
+    version: AgentVersion,
+    *,
+    input_payload: dict[str, Any] | None,
+    incident_id: str | None = None,
+) -> dict[str, Any]:
+    payload = dict(input_payload or {})
+    payload["run_surface"] = "control_plane"
+    if incident_id is not None:
+        payload.setdefault("incident_id", incident_id)
+    payload["agent_version"] = {
+        "id": version.id,
+        "agent_id": version.agent_id,
+        "version_number": version.version_number,
+        "semantic_version": version.semantic_version,
+        "model": version.model,
+        "system_prompt": version.system_prompt,
+        "enabled_tool_ids": list(version.enabled_tool_ids or []),
+        "allowed_scopes": list(version.allowed_scopes or []),
+    }
+    return payload
 
 
 def list_runs(
@@ -118,20 +142,11 @@ def create_control_plane_run(
 
     now = utcnow_naive()
     run_id = f"run_{uuid4().hex[:16]}"
-    payload = dict(input_payload or {})
-    payload["run_surface"] = "control_plane"
-    if incident_id is not None:
-        payload.setdefault("incident_id", incident_id)
-    payload["agent_version"] = {
-        "id": version.id,
-        "agent_id": version.agent_id,
-        "version_number": version.version_number,
-        "semantic_version": version.semantic_version,
-        "model": version.model,
-        "system_prompt": version.system_prompt,
-        "enabled_tool_ids": list(version.enabled_tool_ids or []),
-        "allowed_scopes": list(version.allowed_scopes or []),
-    }
+    payload = _control_plane_input_payload(
+        version,
+        input_payload=input_payload,
+        incident_id=incident_id,
+    )
     run = AgentRun(
         id=run_id,
         incident_id=incident_id,
@@ -177,46 +192,75 @@ def record_blocked_control_plane_tool_attempt(
     blocked_reason: str,
     input_payload: dict[str, Any],
 ) -> str:
-    """Persist a denied control-plane tool call as a failed, inspectable run."""
-    detail = create_control_plane_run(
-        session,
-        agent_version_id=agent_version_id,
-        input_payload=input_payload,
-    )
-    run = session.get(AgentRun, detail.id)
-    if run is None:  # pragma: no cover - protected by create_control_plane_run
-        raise RuntimeError(f"Agent run disappeared: {detail.id}")
+    """Persist a denied tool call as one atomic failed-run audit record.
+
+    No worker owns this synthetic run, so exposing an intermediate queued or
+    running state would create an unrecoverable orphan if the process stopped
+    between commits. The failed run and its blocked step therefore commit in a
+    single transaction.
+    """
+    version = get_published_version(session, agent_version_id)
+    if version is None:
+        raise LookupError(f"Unknown or unpublished agent version id: {agent_version_id}")
 
     now = utcnow_naive()
+    run_id = f"run_{uuid4().hex[:16]}"
     trace_id = f"local-{uuid4().hex[:16]}"
-    run.status = "running"
-    run.started_at = now
-    run.trace_id = trace_id
-    run.trace_provider = "local"
-    run.trace_url = f"local://agent-runs/{run.id}/traces/{trace_id}"
-    run.trace_metadata = {
-        "reason": "tool permission policy denied dispatch",
-        "blocked_tool": tool_name,
-    }
-    run.updated_at = now
-    session.commit()
-
-    AgentRunRecorder(session, run).record_blocked(
-        stage=f"invoke {tool_name}",
-        tool_name=tool_name,
-        inputs=input_payload,
-        blocked_reason=blocked_reason,
-        fallback_output={"tool_disabled": True, "dispatched": False},
+    payload = _control_plane_input_payload(
+        version,
+        input_payload=input_payload,
     )
-
-    completed_at = utcnow_naive()
-    run.status = "failed"
-    run.error = f"{tool_name} blocked: {blocked_reason}"
-    run.completed_at = completed_at
-    run.updated_at = completed_at
-    session.commit()
-    invalidate_run_detail_cache(run.id)
-    return run.id
+    error = f"{tool_name} blocked: {blocked_reason}"
+    run = AgentRun(
+        id=run_id,
+        incident_id=None,
+        agent_id=version.agent_id,
+        agent_version_id=version.id,
+        status="failed",
+        trace_id=trace_id,
+        trace_url=f"local://agent-runs/{run_id}/traces/{trace_id}",
+        trace_provider="local",
+        trace_metadata={
+            "reason": "tool permission policy denied dispatch",
+            "blocked_tool": tool_name,
+        },
+        input_payload=payload,
+        final_report=None,
+        token_estimate=0,
+        prompt_tokens=0,
+        completion_tokens=0,
+        cost_estimate_usd=0.0,
+        error=error,
+        started_at=now,
+        completed_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    run.steps.append(
+        AgentRunStep(
+            id=f"step_{uuid4().hex[:16]}",
+            run_id=run_id,
+            sequence=1,
+            stage=f"invoke {tool_name}",
+            tool_name=tool_name,
+            status="blocked",
+            inputs=jsonable_encoder(input_payload),
+            outputs={"tool_disabled": True, "dispatched": False},
+            error=None,
+            blocked_reason=blocked_reason,
+            started_at=now,
+            completed_at=now,
+            created_at=now,
+        )
+    )
+    session.add(run)
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    invalidate_run_detail_cache(run_id)
+    return run_id
 
 
 def transition_run(session: Session, run_id: str, target: str) -> AgentRunDetail:

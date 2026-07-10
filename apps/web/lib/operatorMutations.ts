@@ -1,6 +1,9 @@
 import 'server-only';
 
+import { redirect } from 'next/navigation';
+
 const ENABLED_VALUE = 'true';
+export const READ_ONLY_OPERATOR_DESTINATION = '/?read_only=1';
 
 export function operatorMutationsEnabled(): boolean {
   return process.env.OPERATOR_UI_ENABLED?.trim().toLowerCase() === ENABLED_VALUE;
@@ -8,8 +11,6 @@ export function operatorMutationsEnabled(): boolean {
 
 export function requireOperatorMutationsEnabled(): void {
   if (!operatorMutationsEnabled()) {
-    throw new Error(
-      'Operator mutations are disabled for this deployment. Use a protected operator environment.',
-    );
+    redirect(READ_ONLY_OPERATOR_DESTINATION);
   }
 }

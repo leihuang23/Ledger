@@ -23,6 +23,12 @@ depends_on: str | Sequence[str] | None = None
 
 PHASE6_VERSION_ID = "revenue-ops-agent_phase6"
 PHASE6_DEGRADED_VERSION_ID = "revenue-ops-agent_phase6_degraded"
+PHASE6_SOURCE_VERSION_ID = "revenue-ops-agent_v1"
+MIGRATION_PUBLISHER = "migration:20260710_0015"
+RELEASE_SNAPSHOT_PUBLISHERS = {
+    PHASE6_VERSION_ID: frozenset({MIGRATION_PUBLISHER, "bootstrap:phase6"}),
+    PHASE6_DEGRADED_VERSION_ID: frozenset({MIGRATION_PUBLISHER, "bootstrap"}),
+}
 PHASE6_ENABLED_TOOLS = [
     "query_revenue_metrics",
     "fetch_account_details",
@@ -71,11 +77,10 @@ def _publish_phase6_capability_snapshot() -> None:
     source = conn.execute(
         sa.select(agent_versions)
         .where(
+            agent_versions.c.id == PHASE6_SOURCE_VERSION_ID,
             agent_versions.c.agent_id == "revenue-ops-agent",
             agent_versions.c.status == "published",
         )
-        .order_by(agent_versions.c.version_number.desc())
-        .limit(1)
     ).mappings().first()
     if source is None:
         return
@@ -102,7 +107,7 @@ def _publish_phase6_capability_snapshot() -> None:
             enabled_tool_ids=PHASE6_ENABLED_TOOLS,
             allowed_scopes=PHASE6_ALLOWED_SCOPES,
             forked_from_version_id=source["id"],
-            published_by="migration:20260710_0015",
+            published_by=MIGRATION_PUBLISHER,
             published_at=now,
             created_at=now,
             updated_at=now,
@@ -175,7 +180,7 @@ def _publish_phase6_degraded_snapshot() -> None:
             ],
             allowed_scopes=PHASE6_ALLOWED_SCOPES,
             forked_from_version_id=PHASE6_VERSION_ID,
-            published_by="migration:20260710_0015",
+            published_by=MIGRATION_PUBLISHER,
             published_at=now,
             created_at=now,
             updated_at=now,
@@ -205,6 +210,84 @@ def upgrade() -> None:
     _publish_phase6_degraded_snapshot()
 
 
+def _release_owned_snapshot_ids(
+    conn: sa.engine.Connection, agent_versions: sa.TableClause
+) -> tuple[str, ...]:
+    rows = conn.execute(
+        sa.select(agent_versions.c.id, agent_versions.c.published_by).where(
+            agent_versions.c.id.in_(
+                (PHASE6_VERSION_ID, PHASE6_DEGRADED_VERSION_ID)
+            )
+        )
+    )
+    return tuple(
+        sorted(
+            row.id
+            for row in rows
+            if row.published_by in RELEASE_SNAPSHOT_PUBLISHERS[row.id]
+        )
+    )
+
+
+def _assert_snapshots_unreferenced(
+    conn: sa.engine.Connection,
+    agent_versions: sa.TableClause,
+    owned_ids: tuple[str, ...],
+) -> None:
+    if not owned_ids:
+        return
+
+    agent_runs = sa.table(
+        "agent_runs",
+        sa.column("agent_version_id", sa.String(128)),
+    )
+    eval_results = sa.table(
+        "eval_results",
+        sa.column("agent_version_id", sa.String(128)),
+    )
+    reference_queries = {
+        "agent_runs": sa.select(sa.literal(1))
+        .select_from(agent_runs)
+        .where(agent_runs.c.agent_version_id.in_(owned_ids))
+        .limit(1),
+        "eval_results": sa.select(sa.literal(1))
+        .select_from(eval_results)
+        .where(eval_results.c.agent_version_id.in_(owned_ids))
+        .limit(1),
+        "agent_versions": sa.select(sa.literal(1))
+        .select_from(agent_versions)
+        .where(
+            agent_versions.c.forked_from_version_id.in_(owned_ids),
+            ~agent_versions.c.id.in_(owned_ids),
+        )
+        .limit(1),
+    }
+    referenced_by = [
+        table_name
+        for table_name, query in reference_queries.items()
+        if conn.execute(query).first() is not None
+    ]
+    if referenced_by:
+        raise RuntimeError(
+            "Cannot downgrade 20260710_0015: release-owned Phase 6 snapshots "
+            f"are referenced by {', '.join(referenced_by)}."
+        )
+
+
 def downgrade() -> None:
+    conn = op.get_bind()
+    agent_versions = sa.table(
+        "agent_versions",
+        sa.column("id", sa.String(128)),
+        sa.column("published_by", sa.String(80)),
+        sa.column("forked_from_version_id", sa.String(128)),
+    )
+    owned_ids = _release_owned_snapshot_ids(conn, agent_versions)
+    _assert_snapshots_unreferenced(conn, agent_versions, owned_ids)
+    for version_id in (PHASE6_DEGRADED_VERSION_ID, PHASE6_VERSION_ID):
+        if version_id in owned_ids:
+            conn.execute(
+                agent_versions.delete().where(agent_versions.c.id == version_id)
+            )
     op.drop_index(op.f("ix_tools_permission_scope"), table_name="tools")
     op.drop_table("tools")

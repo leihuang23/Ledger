@@ -66,11 +66,12 @@ test('agent run page exposes report, trace, cost, citations, approvals, and step
   assert.match(source, /Tool-step history/);
 });
 
-test('server actions fail closed unless the protected operator UI is explicitly enabled', () => {
+test('server actions redirect safely unless the protected operator UI is explicitly enabled', () => {
   const apiSource = readWorkspaceFile('lib/api.ts');
   const actionSource = readWorkspaceFile('app/actions.ts');
   const operatorSource = readWorkspaceFile('lib/operatorMutations.ts');
   const layoutSource = readWorkspaceFile('app/layout.tsx');
+  const dashboardSource = readWorkspaceFile('app/page.tsx');
 
   assert.match(apiSource, /X-Demo-Operator-Token/);
   assert.doesNotMatch(apiSource, /process\.env\.DEMO_OPERATOR_TOKEN/);
@@ -81,8 +82,68 @@ test('server actions fail closed unless the protected operator UI is explicitly 
   assert.equal(mutationGuards.length, exportedActions.length);
   assert.doesNotMatch(actionSource, /NEXT_PUBLIC_DEMO_OPERATOR_TOKEN/);
   assert.match(operatorSource, /OPERATOR_UI_ENABLED/);
-  assert.match(operatorSource, /throw new Error/);
+  assert.match(operatorSource, /READ_ONLY_OPERATOR_DESTINATION = '\/\?read_only=1'/);
+  assert.match(operatorSource, /redirect\(READ_ONLY_OPERATOR_DESTINATION\)/);
+  assert.doesNotMatch(operatorSource, /throw new Error/);
   assert.match(layoutSource, /Public read-only demo/);
+  assert.match(dashboardSource, /No operator action was performed/);
+});
+
+test('public server-rendered mutation controls are read-only while GET review forms stay active', () => {
+  const mutationSurfaces: Array<[string, string[]]> = [
+    ['app/page.tsx', ['openIncidentFromAnomaly']],
+    ['app/incidents/[incidentId]/page.tsx', ['startInvestigationFromIncident']],
+    ['app/agents/[agentId]/page.tsx', ['saveAgentVersionDraft']],
+    [
+      'app/agents/[agentId]/versions/[versionId]/page.tsx',
+      ['launchControlPlaneRun', 'publishAgentVersion', 'saveAgentVersionDraft'],
+    ],
+    ['app/evals/page.tsx', ['runEvalDatasetFromStudio']],
+    ['app/approvals/page.tsx', ['approveApprovalFromQueue', 'rejectApprovalFromQueue']],
+    ['app/runs/[runId]/page.tsx', ['approveApprovalFromRun', 'rejectApprovalFromRun']],
+    ['app/agent/runs/[runId]/page.tsx', ['approveApprovalFromRun', 'rejectApprovalFromRun']],
+  ];
+
+  for (const [path, actionNames] of mutationSurfaces) {
+    const source = readWorkspaceFile(path);
+    assert.match(source, /operatorMutationsEnabled/);
+    assert.match(source, /ReadOnlyOperatorNotice/);
+    for (const actionName of actionNames) {
+      const formPattern = new RegExp(
+        `<form action=\\{${actionName}\\}[\\s\\S]*?<\\/form>`,
+        'g',
+      );
+      const forms = source.match(formPattern) ?? [];
+      assert.ok(forms.length > 0, `${path} must render ${actionName}`);
+      for (const form of forms) {
+        assert.match(form, /disabled=\{!mutationsEnabled/);
+      }
+    }
+  }
+
+  const noticeSource = readWorkspaceFile('app/ReadOnlyOperatorNotice.tsx');
+  assert.match(noticeSource, /public read-only demo/);
+  assert.match(noticeSource, /protected operator\s+deployment/);
+
+  const approvalSource = readWorkspaceFile('app/approvals/page.tsx');
+  const approvalFilterForm = approvalSource.match(/<form action="\/approvals"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(approvalFilterForm);
+  assert.match(approvalFilterForm, /method="get"/);
+  assert.doesNotMatch(approvalFilterForm, /disabled=\{!mutationsEnabled/);
+
+  const evalSource = readWorkspaceFile('app/evals/page.tsx');
+  const evalCompareForm = evalSource.match(/<form action="\/evals"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(evalCompareForm);
+  assert.match(evalCompareForm, /method="get"/);
+  assert.doesNotMatch(evalCompareForm, /disabled=\{!mutationsEnabled/);
+});
+
+test('stateful portfolio suite disables retries at suite scope', () => {
+  const source = readWorkspaceFile('e2e/portfolio-readiness.spec.ts');
+
+  assert.match(source, /test\.describe\.serial/);
+  assert.match(source, /test\.describe\.configure\(\{ retries: 0 \}\)/);
+  assert.match(source, /mutates one shared portfolio environment/);
 });
 
 test('eval studio exposes datasets, per-version runs, results, and regression comparison', () => {

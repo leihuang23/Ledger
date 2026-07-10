@@ -4,6 +4,7 @@ import {
   approveApprovalFromRun,
   rejectApprovalFromRun,
 } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import { RunRefresh } from './RunRefresh';
 import type {
   ActionAuditEvent,
@@ -15,6 +16,7 @@ import type {
 } from '@/lib/api';
 import { getAgentRun } from '@/lib/api';
 import { formatCount, formatDateTime, formatMoney, formatUsd } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 type AgentRunPageProps = {
   params: Promise<{
@@ -331,6 +333,7 @@ function ApprovalQueuePanel({
   runId: string;
 }) {
   const pendingCount = actions.filter((action) => action.status === 'pending_approval').length;
+  const mutationsEnabled = operatorMutationsEnabled();
 
   return (
     <section className="panel approval-panel">
@@ -345,6 +348,7 @@ function ApprovalQueuePanel({
           {approvalError}
         </div>
       ) : null}
+      {!mutationsEnabled && pendingCount > 0 ? <ReadOnlyOperatorNotice /> : null}
       {actions.length > 0 ? (
         <div className="approval-stack">
           {actions.map((action) => (
@@ -366,14 +370,18 @@ function ApprovalQueuePanel({
                       <form action={approveApprovalFromRun}>
                         <input name="approval_id" type="hidden" value={action.approval_request.id} />
                         <input name="run_id" type="hidden" value={runId} />
-                        <button className="action-button" type="submit">
+                        <button className="action-button" disabled={!mutationsEnabled} type="submit">
                           Approve
                         </button>
                       </form>
                       <form action={rejectApprovalFromRun}>
                         <input name="approval_id" type="hidden" value={action.approval_request.id} />
                         <input name="run_id" type="hidden" value={runId} />
-                        <button className="action-button secondary-action" type="submit">
+                        <button
+                          className="action-button secondary-action"
+                          disabled={!mutationsEnabled}
+                          type="submit"
+                        >
                           Reject
                         </button>
                       </form>

@@ -197,6 +197,7 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     if existing_account is not None:
         ingest_builtin_knowledge_documents(session, force=False)
         _seed_control_plane_agent(session)
+        _seed_phase6_agent_version(session)
         _seed_eval_studio_assets(session)
         session.commit()
         return None
@@ -830,32 +831,40 @@ def _seed_eval_studio_assets(session: Session) -> None:
 
     degraded_id = PHASE6_DEGRADED_AGENT_VERSION_ID
     if session.get(AgentVersion, degraded_id) is None:
-        forked_from_version_id = (
-            PHASE6_AGENT_VERSION_ID
-            if session.get(AgentVersion, PHASE6_AGENT_VERSION_ID) is not None
-            else "revenue-ops-agent_v1"
+        source = session.get(AgentVersion, PHASE6_AGENT_VERSION_ID) or session.get(
+            AgentVersion, "revenue-ops-agent_v1"
         )
+        if source is None:
+            return
         enabled_tool_ids = [
             tool_id for tool_id in PHASE6_ENABLED_TOOL_IDS if tool_id != "search_docs"
         ]
+        minimum_version_number = int(
+            session.scalar(
+                select(func.coalesce(func.min(AgentVersion.version_number), 0)).where(
+                    AgentVersion.agent_id == source.agent_id
+                )
+            )
+            or 0
+        )
         session.add(
             AgentVersion(
                 id=degraded_id,
-                agent_id="revenue-ops-agent",
+                agent_id=source.agent_id,
                 # A negative version keeps the intentionally degraded candidate
                 # out of default-version selection on fresh and upgraded data.
-                version_number=-1,
+                version_number=min(minimum_version_number, 0) - 1,
                 semantic_version="0.8.0-phase6-degraded",
                 status="published",
-                system_prompt="",
-                model="gpt-4o-mini",
-                temperature=0.1,
-                max_tokens=1024,
+                system_prompt=source.system_prompt,
+                model=source.model,
+                temperature=source.temperature,
+                max_tokens=source.max_tokens,
                 enabled_tool_ids=enabled_tool_ids,
                 allowed_scopes=list(PHASE6_ALLOWED_SCOPES),
                 published_at=now,
                 published_by="bootstrap",
-                forked_from_version_id=forked_from_version_id,
+                forked_from_version_id=source.id,
                 created_at=now,
                 updated_at=now,
             )
