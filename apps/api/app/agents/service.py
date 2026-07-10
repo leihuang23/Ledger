@@ -580,8 +580,8 @@ def publish_version(
 
 
 DEFAULT_AGENT_ID = "revenue-ops-agent"
-# The legacy eval CLI remains pinned to v1 for a stable baseline. Runtime requests
-# without an explicit selector resolve the newest published version instead.
+# DEFAULT_AGENT_VERSION_ID remains the original immutable v1 snapshot. The legacy/CLI
+# eval baseline is pinned separately to PHASE6_AGENT_VERSION_ID (see app.evals.runner).
 DEFAULT_AGENT_VERSION_ID = "revenue-ops-agent_v1"
 PHASE6_AGENT_VERSION_ID = "revenue-ops-agent_phase6"
 PHASE6_DEGRADED_AGENT_VERSION_ID = "revenue-ops-agent_phase6_degraded"
