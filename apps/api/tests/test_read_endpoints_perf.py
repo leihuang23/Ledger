@@ -133,9 +133,12 @@ def test_read_endpoints_p95_under_300ms_seeded(
         (f"GET /runs/{run_id}", "get", f"/runs/{run_id}"),
     ]
 
-    for label, method, path in probes:
-        p95 = _measure_p95_ms(client, method, path)
-        print(f"read_p95_ms[{label}]={p95:.1f}")
-        assert p95 <= READ_P95_BUDGET_MS, (
-            f"{label} p95 latency {p95:.1f}ms > {READ_P95_BUDGET_MS}ms budget"
-        )
+    try:
+        for label, method, path in probes:
+            p95 = _measure_p95_ms(client, method, path)
+            print(f"read_p95_ms[{label}]={p95:.1f}")
+            assert p95 <= READ_P95_BUDGET_MS, (
+                f"{label} p95 latency {p95:.1f}ms > {READ_P95_BUDGET_MS}ms budget"
+            )
+    finally:
+        app.dependency_overrides.clear()
