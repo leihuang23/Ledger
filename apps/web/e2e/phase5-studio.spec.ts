@@ -5,15 +5,13 @@ test.describe('Phase 5 quality controls', () => {
     test.setTimeout(360000);
     await page.goto('/evals');
     await expect(page.getByRole('heading', { name: 'Eval Studio' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Eval datasets' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Eval datasets' })).toBeVisible();
 
     const runVersion = page.locator('select[name="agent_version_id"]');
-    const options = await runVersion.locator('option').all();
-    test.skip(options.length < 2, 'The comparison requires two published seeded versions.');
-
-    const versionA = await options[0].getAttribute('value');
-    const versionB = await options[1].getAttribute('value');
-    if (!versionA || !versionB) throw new Error('Published version options are missing values.');
+    const versionA = 'revenue-ops-agent_v1';
+    const versionB = 'revenue-ops-agent_degraded';
+    await expect(runVersion.locator(`option[value="${versionA}"]`)).toHaveCount(1);
+    await expect(runVersion.locator(`option[value="${versionB}"]`)).toHaveCount(1);
 
     await runVersion.selectOption(versionA);
     await page.getByRole('button', { name: 'Run selected dataset' }).click();
