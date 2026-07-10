@@ -30,6 +30,18 @@ def make_celery_app() -> Celery:
         # task a 60s grace window to clean up before being terminated.
         task_time_limit=CELERY_TASK_TIME_LIMIT,
         task_soft_time_limit=CELERY_TASK_SOFT_TIME_LIMIT,
+        # Periodic staleness sweep (PRD FR-11, NFR-2): a crashed worker or a
+        # long-lived server with no restart would otherwise leave runs stuck in
+        # ``running`` indefinitely. The reaper task force-fails active runs whose
+        # last activity is older than ``active_run_stale_after_seconds``. The
+        # cadence is operator-tunable; default 60 s matches NFR-2. Disabled in
+        # the test env (eager mode) where beat is not run.
+        beat_schedule={
+            "reap-stale-runs": {
+                "task": "app.agent.tasks.reap_stale_runs",
+                "schedule": settings.run_staleness_sweep_interval_seconds,
+            },
+        },
     )
     return app
 

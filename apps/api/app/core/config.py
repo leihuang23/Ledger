@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/0"
 
+    # Run staleness self-heal (PRD FR-11, NFR-2). The sweep cadence is the
+    # Celery beat interval at which the reaper runs; the stale-after threshold
+    # is how old a run's last activity must be before the reaper force-fails it.
+    # A periodic beat schedule (default 60s) ensures no run stays in ``running``
+    # indefinitely, even on a long-lived server with no restart or re-launch.
+    run_staleness_sweep_interval_seconds: int = Field(default=60, ge=1)
+    active_run_stale_after_seconds: int = Field(default=600, ge=1)
+
     # Logging configuration
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "text"

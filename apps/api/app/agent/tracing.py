@@ -278,6 +278,27 @@ def start_agent_trace(
     )
 
 
+def queued_run_trace(
+    *, run_id: str, incident_id: str | None
+) -> AgentTraceHandle:
+    """Assign a local placeholder trace to a run at queue time (PRD AC-6.3).
+
+    A queued run has not been claimed by a worker yet, so no external
+    observability span is started. The placeholder trace link lets a reviewer
+    inspect a queued run's trace surface immediately rather than seeing a blank
+    trace until claim. ``start_agent_trace`` overwrites these fields with the
+    real provider trace (or a richer local trace with a configured-provider
+    reason) when the run is claimed and transitions to ``running``.
+    """
+    return _local_trace(
+        run_id=run_id,
+        incident_id=incident_id or "",
+        settings=get_settings(),
+        reason="run queued; trace assigned at claim time",
+        requested_provider=TraceProvider.LOCAL.value,
+    )
+
+
 def _start_langfuse_trace(
     *,
     run_id: str,

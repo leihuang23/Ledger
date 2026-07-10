@@ -866,7 +866,7 @@ def test_tool_registry_downgrade_fails_closed_when_snapshot_is_referenced(
                 id=f"run_{reference_type}",
                 incident_id=None,
                 agent_id="revenue-ops-agent",
-                agent_version_id=(
+                agent_version_id="revenue-ops-agent_phase6",
                 status="succeeded",
                 trace_url=None,
                 trace_provider=None,
@@ -885,15 +885,17 @@ def test_tool_registry_downgrade_fails_closed_when_snapshot_is_referenced(
             )
             session.add(run)
             if reference_type == "eval_result":
-                eval_case_id = session.scalar(sa.select(EvalCase.id).limit(1))
-                assert eval_case_id is not None
+                eval_case = session.scalars(sa.select(EvalCase).limit(1)).first()
+                assert eval_case is not None
                 session.add(
                     EvalResult(
                         id="eval_result_phase6_reference",
                         eval_run_id="eval_run_phase6_reference",
-                        eval_case_id=eval_case_id,
+                        eval_case_id=eval_case.id,
                         agent_run_id=run.id,
+                        scenario=eval_case.scenario,
                         status="passed",
+                        passed=True,
                         root_cause_score=1.0,
                         citation_quality_score=1.0,
                         action_safety_score=1.0,

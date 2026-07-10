@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.persistence import utcnow_naive
 from app.agent.schemas import AgentRunDetail, AgentRunSummary
+from app.agent.tracing import queued_run_trace
 from app.agent.service import (
     abandon_orphaned_runs_for_incident,
     get_run_detail,
@@ -142,6 +143,10 @@ def create_control_plane_run(
 
     now = utcnow_naive()
     run_id = f"run_{uuid4().hex[:16]}"
+    # Assign a local placeholder trace at queue time (PRD AC-6.3) so a reviewer
+    # sees a trace link on a queued run immediately. ``start_agent_trace``
+    # overwrites these fields when the run is claimed and transitions to running.
+    queued_trace = queued_run_trace(run_id=run_id, incident_id=incident_id)
     payload = _control_plane_input_payload(
         version,
         input_payload=input_payload,
@@ -153,10 +158,10 @@ def create_control_plane_run(
         agent_id=version.agent_id,
         agent_version_id=version.id,
         status="queued",
-        trace_id=None,
-        trace_url=None,
-        trace_provider=None,
-        trace_metadata={},
+        trace_id=queued_trace.trace_id,
+        trace_url=queued_trace.trace_url,
+        trace_provider=queued_trace.provider,
+        trace_metadata=queued_trace.metadata,
         input_payload=payload,
         final_report=None,
         token_estimate=0,

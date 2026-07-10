@@ -285,6 +285,7 @@ def list_approval_requests(
     status: ApprovalStatus | None = None,
     agent_version_id: str | None = None,
     risk_level: RiskLevel | None = None,
+    include_decided: bool = False,
 ) -> list[ApprovalRequestRead]:
     query = (
         select(ApprovalRequest)
@@ -299,8 +300,13 @@ def list_approval_requests(
             ),
         )
     )
+    # FR-12: the approval queue lists PENDING approvals by default. An operator
+    # opts into history (approved/rejected) with ``include_decided=true``; an
+    # explicit ``status`` filter always takes precedence over both defaults.
     if status is not None:
         query = query.where(ApprovalRequest.status == status)
+    elif not include_decided:
+        query = query.where(ApprovalRequest.status == "pending")
     if agent_version_id is not None:
         query = query.where(AgentRun.agent_version_id == agent_version_id)
     if risk_level is not None:

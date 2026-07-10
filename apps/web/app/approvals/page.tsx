@@ -19,6 +19,7 @@ type ApprovalSearchParams = {
   agent_version_id?: string;
   risk_level?: string;
   approval_error?: string;
+  include_decided?: string;
 };
 
 type PublishedVersion = {
@@ -35,11 +36,16 @@ export default async function ApprovalsPage({
   const mutationsEnabled = operatorMutationsEnabled();
   const status = readStatus(params.status);
   const riskLevel = readRiskLevel(params.risk_level);
+  // FR-12: the queue defaults to pending. The filter form carries
+  // ``include_decided=true`` so an operator viewing history (approved/rejected)
+  // keeps that context; "Clear filters" omits it and returns to the pending queue.
+  const includeDecided = params.include_decided === 'true';
   const [result, versions] = await Promise.all([
     listApprovalRequests({
       status,
       agent_version_id: params.agent_version_id || undefined,
       risk_level: riskLevel,
+      include_decided: includeDecided,
     }),
     loadPublishedVersions(),
   ]);
@@ -68,6 +74,9 @@ export default async function ApprovalsPage({
           <Link href="/approvals">Clear filters</Link>
         </div>
         <form action="/approvals" className="approval-filter-form" method="get">
+          {/* Carry include_decided so "All statuses" history view survives a
+              filter re-apply; "Clear filters" omits it to return to pending. */}
+          <input type="hidden" name="include_decided" value="true" />
           <label className="field-label">
             <span>Status</span>
             <select className="field-select" defaultValue={status ?? ''} name="status">
@@ -217,6 +226,9 @@ function ApprovalDecisionFields({
       ) : null}
       {params.risk_level ? (
         <input type="hidden" name="risk_level" value={params.risk_level} />
+      ) : null}
+      {params.include_decided ? (
+        <input type="hidden" name="include_decided" value={params.include_decided} />
       ) : null}
     </>
   );

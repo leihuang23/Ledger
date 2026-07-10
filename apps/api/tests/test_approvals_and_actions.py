@@ -163,6 +163,117 @@ def test_high_risk_action_is_blocked_until_approved(
     assert test_client.get("/approvals?status=pending&risk_level=low").json() == []
 
 
+def test_approval_queue_defaults_to_pending_fr12(
+    client: tuple[TestClient, str],
+) -> None:
+    """FR-12: ``GET /approvals`` lists PENDING approvals by default (the queue),
+    not the full history. ``include_decided=true`` opts into approved/rejected
+    history; an explicit ``status`` filter always takes precedence.
+
+    Creates two high-risk actions, approves one, then asserts the default list
+    excludes the decided one while ``include_decided`` and ``status=approved``
+    surface it."""
+    test_client, run_id = client
+
+    def _create_high_risk() -> str:
+        response = test_client.post(
+            "/mock-actions",
+            json={
+                "run_id": run_id,
+                "action_type": "draft_customer_email",
+                "title": "Draft follow-up",
+                "description": "Prepare customer-facing follow-up.",
+                "target": "affected billing contacts",
+                "payload": {"subject": "Update", "body": "We found the issue."},
+            },
+        )
+        assert response.status_code == 201
+        return response.json()["approval_request"]["id"]
+
+    approved_id = _create_high_risk()
+    pending_id = _create_high_risk()
+
+    # Decide the first one so there is a mix of pending + approved.
+    decision = test_client.post(
+        f"/approvals/{approved_id}/approve",
+        json={"notes": "Approved."},
+    )
+    assert decision.status_code == 200
+
+    # Default (no params) -> pending only (FR-12).
+    default = test_client.get("/approvals")
+    assert default.status_code == 200
+    default_ids = {item["id"] for item in default.json()}
+    assert default_ids == {pending_id}, default_ids
+
+    # include_decided=true -> all statuses (the approved one surfaces).
+    all_statuses = test_client.get("/approvals?include_decided=true")
+    assert all_statuses.status_code == 200
+    all_ids = {item["id"] for item in all_statuses.json()}
+    assert all_ids == {approved_id, pending_id}, all_ids
+
+    # Explicit status=approved -> only the approved one (takes precedence over
+    # both the pending default and include_decided).
+    approved_only = test_client.get("/approvals?status=approved")
+    assert approved_only.status_code == 200
+    assert {item["id"] for item in approved_only.json()} == {approved_id}
+
+
+def test_approve_after_reject_returns_409_at_http_level(
+    client: tuple[TestClient, str],
+) -> None:
+    """FR-13 / AC-4.2: deciding an already-decided approval is rejected with 409
+    at the HTTP level (not just the service layer). The service-layer race test
+    (``test_concurrent_approve_after_reject_is_blocked``) covers the ValueError;
+    this pins the router's ``ValueError -> 409`` mapping so a regression that
+    swallows the conflict (e.g. returning 200 or 500) is caught. Covers both
+    directions: approve-after-reject and reject-after-approve."""
+    test_client, run_id = client
+
+    def _create_high_risk() -> str:
+        response = test_client.post(
+            "/mock-actions",
+            json={
+                "run_id": run_id,
+                "action_type": "draft_customer_email",
+                "title": "Draft follow-up",
+                "description": "Prepare customer-facing follow-up.",
+                "target": "affected billing contacts",
+                "payload": {"subject": "Update", "body": "We found the issue."},
+            },
+        )
+        assert response.status_code == 201
+        return response.json()["approval_request"]["id"]
+
+    # Approve-after-reject -> 409.
+    rejected_id = _create_high_risk()
+    reject_response = test_client.post(
+        f"/approvals/{rejected_id}/reject",
+        json={"notes": "Rejected first."},
+    )
+    assert reject_response.status_code == 200
+    late_approve = test_client.post(
+        f"/approvals/{rejected_id}/approve",
+        json={"notes": "Late approve."},
+    )
+    assert late_approve.status_code == 409
+    assert "already" in late_approve.json()["detail"].lower()
+
+    # Reject-after-approve -> 409 (symmetric).
+    approved_id = _create_high_risk()
+    approve_response = test_client.post(
+        f"/approvals/{approved_id}/approve",
+        json={"notes": "Approved first."},
+    )
+    assert approve_response.status_code == 200
+    late_reject = test_client.post(
+        f"/approvals/{approved_id}/reject",
+        json={"notes": "Late reject."},
+    )
+    assert late_reject.status_code == 409
+    assert "already" in late_reject.json()["detail"].lower()
+
+
 def test_mock_action_payload_rejects_unsupported_fields(
     client: tuple[TestClient, str],
 ) -> None:

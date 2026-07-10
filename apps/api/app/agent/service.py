@@ -19,7 +19,7 @@ from app.agent.schemas import (
     InvestigationReport,
     ModelUsageRead,
 )
-from app.agent.tracing import AgentTraceHandle, start_agent_trace
+from app.agent.tracing import AgentTraceHandle, queued_run_trace, start_agent_trace
 from app.agent.workflow import run_investigation_workflow
 from app.agents.service import (
     DEFAULT_AGENT_ID,
@@ -45,6 +45,18 @@ from app.tools.scopes import TOOL_SCOPES
 ACTIVE_RUN_STALE_AFTER = timedelta(minutes=10)
 ACTIVE_RUN_STATUSES = ("queued", "running")
 BLOCKING_RUN_STATUSES = (*ACTIVE_RUN_STATUSES, "waiting_for_approval")
+
+
+def _active_run_stale_after() -> timedelta:
+    """Resolve the stale-after threshold from settings (PRD FR-11, NFR-2).
+
+    Operator-tunable via ``ACTIVE_RUN_STALE_AFTER_SECONDS``; defaults to the
+    module constant (10 min) so tests that import ``ACTIVE_RUN_STALE_AFTER``
+    stay deterministic when the setting is left at its default.
+    """
+    from app.core.config import get_settings
+
+    return timedelta(seconds=get_settings().active_run_stale_after_seconds)
 
 logger = get_logger(__name__)
 
@@ -121,16 +133,20 @@ def create_investigation_run(
 
     now = utcnow_naive()
     run_id = f"run_{uuid4().hex[:16]}"
+    # Assign a local placeholder trace at queue time (PRD AC-6.3) so a reviewer
+    # sees a trace link on a queued run immediately. ``start_agent_trace``
+    # overwrites these fields when the run is claimed and transitions to running.
+    queued_trace = queued_run_trace(run_id=run_id, incident_id=incident_id)
     run = AgentRun(
         id=run_id,
         incident_id=incident_id,
         agent_id=resolved_agent_id,
         agent_version_id=resolved_version_id,
         status="queued",
-        trace_id=None,
-        trace_url=None,
-        trace_provider=None,
-        trace_metadata={},
+        trace_id=queued_trace.trace_id,
+        trace_url=queued_trace.trace_url,
+        trace_provider=queued_trace.provider,
+        trace_metadata=queued_trace.metadata,
         input_payload={
             "incident_id": incident_id,
             "agent_version": {
@@ -967,7 +983,7 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
 
 def _abandon_orphaned_runs(session: Session, incident_id: str) -> None:
     now = utcnow_naive()
-    cutoff = now - ACTIVE_RUN_STALE_AFTER
+    cutoff = now - _active_run_stale_after()
     orphaned_runs = session.scalars(
         select(AgentRun).where(
             AgentRun.incident_id == incident_id,
@@ -1007,7 +1023,7 @@ def abandon_orphaned_runs_for_incident(
 
 def abandon_orphaned_active_runs(session: Session) -> int:
     now = utcnow_naive()
-    cutoff = now - ACTIVE_RUN_STALE_AFTER
+    cutoff = now - _active_run_stale_after()
     orphaned_runs = session.scalars(
         select(AgentRun).where(
             AgentRun.status.in_(ACTIVE_RUN_STATUSES),
@@ -1076,7 +1092,7 @@ def _run_is_stale(
     if run.status not in ACTIVE_RUN_STATUSES:
         return False
     now = now or utcnow_naive()
-    return _run_last_activity_at(session, run) < now - ACTIVE_RUN_STALE_AFTER
+    return _run_last_activity_at(session, run) < now - _active_run_stale_after()
 
 
 def _mark_run_interrupted(

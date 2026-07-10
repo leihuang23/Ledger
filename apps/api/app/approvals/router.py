@@ -66,6 +66,7 @@ def approval_queue(
     status: ApprovalStatus | None = None,
     agent_version_id: str | None = None,
     risk_level: RiskLevel | None = None,
+    include_decided: bool = False,
     db: Session = Depends(get_db),
 ) -> list[ApprovalRequestRead]:
     return list_approval_requests(
@@ -73,6 +74,7 @@ def approval_queue(
         status=status,
         agent_version_id=agent_version_id,
         risk_level=risk_level,
+        include_decided=include_decided,
     )
 
 

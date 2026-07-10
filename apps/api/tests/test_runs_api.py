@@ -223,6 +223,29 @@ def test_control_plane_run_allows_nullable_incident_id(
     assert detail.status == "queued"
 
 
+def test_control_plane_queued_run_carries_local_trace_at_queue_time(
+    session_factory: Callable[[], Session],
+) -> None:
+    """PRD AC-6.3: a freshly queued control-plane run must carry a local
+    placeholder trace link (not None) so a reviewer can inspect the trace surface
+    before a worker claims the run. ``start_agent_trace`` overwrites these fields
+    when the run transitions to running. Mirrors the incident-bound path
+    (``test_default_investigation_launch_returns_queued_run_then_completes``)."""
+    _seed(session_factory)
+    with session_factory() as session:
+        detail = create_control_plane_run(
+            session,
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
+            incident_id=None,
+        )
+
+    assert detail.status == "queued"
+    assert detail.trace_id
+    assert detail.trace_provider == "local"
+    assert detail.trace_url.startswith("local://agent-runs/")
+    assert detail.trace_id in detail.trace_url
+
+
 def test_blocked_control_plane_attempt_commits_complete_audit_once(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,

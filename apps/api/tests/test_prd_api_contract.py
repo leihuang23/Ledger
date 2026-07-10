@@ -187,6 +187,64 @@ def test_public_demo_mutation_routes_require_operator_token(
     assert all("DEMO_OPERATOR_TOKEN" in response.json()["detail"] for response in responses)
 
 
+def test_project2_mutation_routes_fail_closed_without_operator_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FR-21: the Project 2 mutating endpoints (agents, versions, publish, tools,
+    eval-datasets, control-plane runs, run transitions) must fail closed in the
+    ``demo`` env when ``DEMO_OPERATOR_TOKEN`` is unset. Each sends a valid body so
+    the request reaches the token-gate dependency (rather than a 422 from body
+    validation) and is rejected with 403 + the DEMO_OPERATOR_TOKEN hint. Mirrors
+    ``test_public_demo_mutation_routes_require_operator_token`` for the new
+    control-plane surfaces; the eval-run-token-gated endpoints (``POST /evals/run``,
+    ``POST /eval-datasets/{id}/run``) are covered by their own fail-closed tests."""
+    monkeypatch.setenv("APP_ENV", "demo")
+    get_settings.cache_clear()
+    client = TestClient(app)
+    try:
+        # (method, path, json_body) — bodies are valid so the only reason for a
+        # 403 is the unset operator token, not a malformed request.
+        probes: list[tuple[str, str, dict | None]] = [
+            ("post", "/agents", {"id": "demo-agent", "name": "Demo"}),
+            ("post", "/agents/revenue-ops-agent/versions", {}),
+            (
+                "post",
+                "/agents/revenue-ops-agent/versions/revenue-ops-agent_phase6/publish",
+                {},
+            ),
+            ("patch", "/agents/revenue-ops-agent/versions/revenue-ops-agent_phase6", {}),
+            (
+                "post",
+                "/tools",
+                {
+                    "id": "demo_tool",
+                    "name": "Demo",
+                    "description": "Demo tool",
+                    "input_schema": {},
+                    "output_schema": {},
+                    "permission_scope": "read_data",
+                    "implementation_ref": "app.demo.run",
+                },
+            ),
+            ("post", "/eval-datasets", {"name": "demo-dataset", "case_ids": ["case_1"]}),
+            ("post", "/runs", {"agent_version_id": "revenue-ops-agent_phase6"}),
+            ("post", "/runs/run_demo/transitions", {"status": "failed"}),
+        ]
+        responses = [
+            getattr(client, method)(path, json=body) for method, path, body in probes
+        ]
+    finally:
+        monkeypatch.delenv("APP_ENV", raising=False)
+        get_settings.cache_clear()
+
+    assert [r.status_code for r in responses] == [403] * len(probes), [
+        (p[0], p[1], r.status_code, r.text) for p, r in zip(probes, responses)
+    ]
+    assert all(
+        "DEMO_OPERATOR_TOKEN" in r.json()["detail"] for r in responses
+    ), [r.json() for r in responses]
+
+
 def test_public_demo_mutation_route_validates_configured_operator_token(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,

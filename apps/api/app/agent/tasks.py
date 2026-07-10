@@ -53,3 +53,36 @@ def investigate_incident(run_id: str) -> dict[str, object]:
         "status": detail.status,
         "incident_id": detail.incident_id,
     }
+
+
+@celery_app.task
+def reap_stale_runs() -> dict[str, object]:
+    """Periodically fail active runs that have gone stale (PRD FR-11, NFR-2).
+
+    Scheduled by the Celery beat schedule (default 60 s) so a crashed worker or a
+    long-lived server does not leave runs stuck in ``running`` until the next API
+    restart or next incident-bound launch. The staleness threshold itself is
+    operator-tunable via ``ACTIVE_RUN_STALE_AFTER_SECONDS`` (default 600 s).
+
+    Idempotent: ``abandon_orphaned_active_runs`` uses conditional updates keyed on
+    ``status in ACTIVE_RUN_STATUSES``, so concurrent reapers or operator transitions
+    are safe. Returns the count for monitoring/observability.
+    """
+    from app.agent.service import abandon_orphaned_active_runs
+
+    try:
+        with SessionLocal() as session:
+            abandoned = abandon_orphaned_active_runs(session)
+    except Exception:
+        # A transient DB failure should not kill the beat schedule. Log and let
+        # the next tick retry; the per-incident self-heal still covers the
+        # common "new launch against a stale incident" path.
+        logger.exception("Stale-run reaper failed; will retry on next beat tick")
+        return {"abandoned": 0, "error": True}
+
+    if abandoned:
+        logger.info(
+            "Stale-run reaper abandoned runs",
+            extra={"abandoned_count": abandoned},
+        )
+    return {"abandoned": abandoned, "error": False}

@@ -261,7 +261,11 @@ def test_default_investigation_launch_returns_queued_run_then_completes(
 
     assert response.status_code == 201
     assert payload["status"] == "queued"
-    assert payload["trace_id"] is None
+    # PRD AC-6.3: a queued run carries a local placeholder trace link at queue
+    # time (not None); start_agent_trace overwrites it with the real provider
+    # trace once the run is claimed.
+    assert payload["trace_id"]
+    assert payload["trace_provider"] == "local"
     assert payload["final_report"] is None
 
     assert run_response.status_code == 200

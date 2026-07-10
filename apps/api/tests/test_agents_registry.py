@@ -300,6 +300,9 @@ class TestCreateAgent:
         client.post("/agents", json=payload)
         response = client.post("/agents", json=payload)
         assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "conflict"
+        assert body["error"]["request_id"]
 
     def test_create_agent_invalid_slug_returns_validation_error(self, client: TestClient) -> None:
         response = client.post(
@@ -492,6 +495,9 @@ class TestVersionMutability:
             json={"system_prompt": "trying to change published"},
         )
         assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "conflict"
+        assert body["error"]["request_id"]
 
 
 class TestPublishVersion:
@@ -524,6 +530,9 @@ class TestPublishVersion:
             "/agents/revenue-ops-agent/versions/revenue-ops-agent_v1/publish",
         )
         assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "conflict"
+        assert body["error"]["request_id"]
 
     def test_publish_second_draft_gets_next_version_number(self, client: TestClient) -> None:
         client.post(

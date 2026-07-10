@@ -304,6 +304,7 @@ function redirectToApprovals(formData: FormData, error?: string) {
   copySafeQueryValue(formData, params, 'status');
   copySafeQueryValue(formData, params, 'agent_version_id');
   copySafeQueryValue(formData, params, 'risk_level');
+  copySafeQueryValue(formData, params, 'include_decided');
   if (error) {
     params.set('approval_error', error);
   }

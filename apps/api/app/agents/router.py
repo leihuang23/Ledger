@@ -31,6 +31,7 @@ from app.agents.service import (
 )
 from app.core.access import require_demo_data_access, require_demo_operator_access
 from app.core.config import get_settings
+from app.core.errors import error_response
 from app.core.limiter import limiter
 from app.db.session import get_db
 
@@ -64,10 +65,7 @@ def create_agent_endpoint(
     try:
         agent = create_agent(db, payload)
     except DuplicateAgentError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        return error_response("conflict", str(exc), 409)
     except InvalidVersionConfigError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -156,10 +154,7 @@ def update_version_endpoint(
             detail=str(exc),
         ) from exc
     except ImmutableVersionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        return error_response("conflict", str(exc), 409)
     except InvalidVersionConfigError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -186,10 +181,7 @@ def publish_version_endpoint(
             detail=str(exc),
         ) from exc
     except (ImmutableVersionError, ConcurrentPublishError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+        return error_response("conflict", str(exc), 409)
     except InvalidVersionConfigError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

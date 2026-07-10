@@ -1606,6 +1606,7 @@ export async function listApprovalRequests(
     status?: ApprovalStatus;
     agent_version_id?: string;
     risk_level?: RiskLevel;
+    include_decided?: boolean;
   } = {},
 ): Promise<ApprovalRequestListResult> {
   try {
@@ -1618,6 +1619,12 @@ export async function listApprovalRequests(
     }
     if (options.risk_level) {
       params.set('risk_level', options.risk_level);
+    }
+    if (options.include_decided) {
+      // FR-12: the API defaults to pending; opting into decided (approved/
+      // rejected) history requires an explicit flag so the queue view stays
+      // pending-only by default.
+      params.set('include_decided', 'true');
     }
     const query = params.toString();
     const response = await fetch(`${resolveApiBaseUrl()}/approvals${query ? `?${query}` : ''}`, {
