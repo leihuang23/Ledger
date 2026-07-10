@@ -28,6 +28,7 @@ from app.metrics.service import (
 )
 from app.models import (
     Account,
+    AgentVersion,
     Invoice,
     Incident,
     KnowledgeDocument,
@@ -82,6 +83,10 @@ def test_ensure_seeded_if_empty_seeds_blank_database(
         assert result is not None
         assert result.counts["accounts"] == 60
         assert result.counts["product_events"] == 6000
+        phase6 = session.get(AgentVersion, "revenue-ops-agent_phase6")
+        assert phase6 is not None
+        assert phase6.status == "published"
+        assert phase6.forked_from_version_id == "revenue-ops-agent_v1"
 
 
 def test_ensure_seeded_if_empty_refuses_production_environment(

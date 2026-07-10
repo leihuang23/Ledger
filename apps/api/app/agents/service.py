@@ -16,7 +16,7 @@ from app.agents.schemas import (
     VersionSummary,
 )
 from app.models import Agent, AgentVersion
-from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
+from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES, TOOL_SCOPES
 
 
 class AgentNotFoundError(LookupError):
@@ -49,6 +49,7 @@ DEFAULT_ENABLED_TOOL_IDS: tuple[str, ...] = (
     "search_docs",
     "fetch_support_tickets",
 )
+PHASE6_ENABLED_TOOL_IDS: tuple[str, ...] = tuple(TOOL_SCOPES)
 
 
 def _validate_version_config(
@@ -57,7 +58,6 @@ def _validate_version_config(
     enabled_tool_ids: list[str] | None,
     allowed_scopes: list[str] | None = None,
 ) -> None:
-    from app.agent.tools import TOOL_IDS
     from app.tools.scopes import ALLOWED_SCOPES
 
     if model is not None and model not in ALLOWED_MODELS:
@@ -66,7 +66,7 @@ def _validate_version_config(
             f"Unsupported model: {model!r}. Allowed models: {allowed}"
         )
     if enabled_tool_ids is not None:
-        unknown = set(enabled_tool_ids) - set(TOOL_IDS)
+        unknown = set(enabled_tool_ids) - set(TOOL_SCOPES)
         if unknown:
             raise InvalidVersionConfigError(
                 "Unknown tool ids: " + ", ".join(sorted(unknown))
@@ -580,7 +580,11 @@ def publish_version(
 
 
 DEFAULT_AGENT_ID = "revenue-ops-agent"
+# DEFAULT_AGENT_VERSION_ID remains the original immutable v1 snapshot. The legacy/CLI
+# eval baseline is pinned separately to PHASE6_AGENT_VERSION_ID (see app.evals.runner).
 DEFAULT_AGENT_VERSION_ID = "revenue-ops-agent_v1"
+PHASE6_AGENT_VERSION_ID = "revenue-ops-agent_phase6"
+PHASE6_DEGRADED_AGENT_VERSION_ID = "revenue-ops-agent_phase6_degraded"
 
 
 def get_published_version(

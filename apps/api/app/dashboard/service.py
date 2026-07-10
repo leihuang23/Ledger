@@ -91,6 +91,7 @@ def _version_aggregate_rows(
             Agent.name,
             AgentVersion.semantic_version,
             AgentVersion.model,
+            AgentVersion.version_number,
         )
         .order_by(
             Agent.name,

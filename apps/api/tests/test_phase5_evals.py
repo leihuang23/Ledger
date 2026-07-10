@@ -135,20 +135,20 @@ def test_run_dataset_uses_selected_published_version_and_lists_filtered_results(
 
     response = client.post(
         "/eval-datasets/mrr-drop-suite/run",
-        json={"agent_version_id": "revenue-ops-agent_v1"},
+        json={"agent_version_id": "revenue-ops-agent_phase6"},
         headers={"X-Eval-Run-Token": "phase5-eval-token"},
     )
 
     assert response.status_code == 202
     accepted = response.json()
     assert accepted["dataset_id"] == "mrr-drop-suite"
-    assert accepted["agent_version_id"] == "revenue-ops-agent_v1"
+    assert accepted["agent_version_id"] == "revenue-ops-agent_phase6"
     assert accepted["status"] == "queued"
 
     results_response = client.get(
         "/eval-results",
         params={
-            "agent_version_id": "revenue-ops-agent_v1",
+            "agent_version_id": "revenue-ops-agent_phase6",
             "dataset_id": "mrr-drop-suite",
         },
     )
@@ -159,7 +159,7 @@ def test_run_dataset_uses_selected_published_version_and_lists_filtered_results(
         accepted["eval_run_id"]
     }
     assert all(
-        result["agent_version_id"] == "revenue-ops-agent_v1"
+        result["agent_version_id"] == "revenue-ops-agent_phase6"
         and result["dataset_id"] == "mrr-drop-suite"
         and result["cost_estimate_usd"] >= 0
         and result["trace_url"]
@@ -173,7 +173,10 @@ def test_run_dataset_uses_selected_published_version_and_lists_filtered_results(
             )
         ).all()
         assert len(persisted) == 6
-        assert all(result.agent_version_id == "revenue-ops-agent_v1" for result in persisted)
+        assert all(
+            result.agent_version_id == "revenue-ops-agent_phase6"
+            for result in persisted
+        )
         assert all(result.dataset_id == "mrr-drop-suite" for result in persisted)
         assert all(
             result.cost_estimate_usd
@@ -191,13 +194,13 @@ def test_compare_latest_complete_version_runs_flags_regressions(
             session,
             eval_run_id="evalrun_good",
             dataset_id="mrr-drop-suite",
-            agent_version_id="revenue-ops-agent_v1",
+            agent_version_id="revenue-ops-agent_phase6",
         )
         degraded = run_eval_suite(
             session,
             eval_run_id="evalrun_degraded",
             dataset_id="mrr-drop-suite",
-            agent_version_id="revenue-ops-agent_degraded",
+            agent_version_id="revenue-ops-agent_phase6_degraded",
         )
 
     assert good.passed_scenarios >= 4
@@ -206,8 +209,8 @@ def test_compare_latest_complete_version_runs_flags_regressions(
     response = client.get(
         "/eval-results/compare",
         params={
-            "version_a": "revenue-ops-agent_v1",
-            "version_b": "revenue-ops-agent_degraded",
+            "version_a": "revenue-ops-agent_phase6",
+            "version_b": "revenue-ops-agent_phase6_degraded",
             "dataset_id": "mrr-drop-suite",
         },
     )
@@ -252,7 +255,7 @@ def test_small_custom_dataset_uses_dataset_relative_completion_and_threshold(
             session,
             eval_run_id="evalrun_two_case",
             dataset_id=dataset.id,
-            agent_version_id="revenue-ops-agent_v1",
+            agent_version_id="revenue-ops-agent_phase6",
         )
         rebuilt = build_eval_run_summary(session, direct.eval_run_id)
 
@@ -361,7 +364,7 @@ def test_eval_dataset_run_fails_closed_without_both_demo_tokens(
 
     missing_eval = client.post(
         "/eval-datasets/mrr-drop-suite/run",
-        json={"agent_version_id": "revenue-ops-agent_v1"},
+        json={"agent_version_id": "revenue-ops-agent_phase6"},
         headers={"X-Demo-Operator-Token": "operator-token"},
     )
 
@@ -369,12 +372,12 @@ def test_eval_dataset_run_fails_closed_without_both_demo_tokens(
     get_settings.cache_clear()
     missing_operator = client.post(
         "/eval-datasets/mrr-drop-suite/run",
-        json={"agent_version_id": "revenue-ops-agent_v1"},
+        json={"agent_version_id": "revenue-ops-agent_phase6"},
         headers={"X-Eval-Run-Token": "eval-token"},
     )
     authorized = client.post(
         "/eval-datasets/mrr-drop-suite/run",
-        json={"agent_version_id": "revenue-ops-agent_v1"},
+        json={"agent_version_id": "revenue-ops-agent_phase6"},
         headers={
             "X-Eval-Run-Token": "eval-token",
             "X-Demo-Operator-Token": "operator-token",
@@ -384,6 +387,51 @@ def test_eval_dataset_run_fails_closed_without_both_demo_tokens(
     assert missing_eval.status_code == 403
     assert missing_operator.status_code == 403
     assert authorized.status_code == 202
+
+
+def test_eval_dataset_run_requires_version_run_eval_permission(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.evals.studio_router._enqueue_eval_dataset",
+        lambda *_args: None,
+    )
+    monkeypatch.setenv("EVAL_RUN_TOKEN", "eval-token")
+    get_settings.cache_clear()
+
+    draft = client.post(
+        "/agents/revenue-ops-agent/versions",
+        json={
+            "fork_from_version_id": "revenue-ops-agent_phase6",
+            "enabled_tool_ids": ["run_eval"],
+            "allowed_scopes": ["read_data"],
+        },
+    )
+    assert draft.status_code == 201
+    version_id = draft.json()["id"]
+    assert client.post(
+        f"/agents/revenue-ops-agent/versions/{version_id}/publish"
+    ).status_code == 200
+
+    response = client.post(
+        "/eval-datasets/mrr-drop-suite/run",
+        json={"agent_version_id": version_id},
+        headers={"X-Eval-Run-Token": "eval-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "run_eval blocked: scope_not_allowed"
+    blocked_run_id = response.headers["X-Agent-Run-Id"]
+    blocked_run = client.get(f"/runs/{blocked_run_id}")
+    assert blocked_run.status_code == 200
+    run_payload = blocked_run.json()
+    assert run_payload["status"] == "failed"
+    assert run_payload["input_payload"]["operation"] == "run_eval"
+    assert run_payload["input_payload"]["dataset_id"] == "mrr-drop-suite"
+    assert run_payload["steps"][-1]["tool_name"] == "run_eval"
+    assert run_payload["steps"][-1]["status"] == "blocked"
+    assert run_payload["steps"][-1]["blocked_reason"] == "scope_not_allowed"
 
 
 def test_phase5_migration_is_additive_and_reversible(tmp_path) -> None:

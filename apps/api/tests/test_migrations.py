@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,9 +12,12 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.db.base import Base
+from app.models import AgentRun, AgentVersion, EvalCase, EvalResult
+from app.seed import insert_seed_data
 
 MIGRATION_PATH = (
     Path(__file__).resolve().parent.parent
@@ -32,6 +36,12 @@ RUN_ORCHESTRATION_MIGRATION_PATH = (
     / "alembic"
     / "versions"
     / "20260709_0012_run_orchestration.py"
+)
+TOOL_REGISTRY_MIGRATION_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "alembic"
+    / "versions"
+    / "20260710_0015_tool_registry.py"
 )
 
 
@@ -642,3 +652,309 @@ def test_run_orchestration_migration_downgrade_preserves_customized_scopes(
     assert row["allowed_scopes"] == custom_scopes
     engine.dispose()
 
+
+def test_tool_registry_migration_cycle_recreates_v1_based_snapshots_without_mutating_existing(
+    tmp_path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'tool_registry_migration.db'}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DROP TABLE tools"))
+        conn.execute(
+            sa.text(
+                "INSERT INTO agents (id, name, description, default_model, created_at, updated_at) "
+                "VALUES ('revenue-ops-agent', 'Revenue Ops Agent', '', 'gpt-4o-mini', "
+                "'2026-07-09', '2026-07-09')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO agent_versions (id, agent_id, version_number, semantic_version, "
+                "status, system_prompt, model, temperature, max_tokens, enabled_tool_ids, "
+                "allowed_scopes, published_by, published_at, created_at, updated_at) VALUES "
+                "('revenue-ops-agent_v1', 'revenue-ops-agent', 1, '1.0.0', 'published', '', "
+                "'gpt-4o-mini', 0.1, 1024, :tools, :scopes, 'operator', '2026-07-09', "
+                "'2026-07-09', '2026-07-09')"
+            ),
+            {"tools": '["query_revenue_metrics"]', "scopes": '["read_data"]'},
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO agent_versions (id, agent_id, version_number, semantic_version, "
+                "status, system_prompt, model, temperature, max_tokens, enabled_tool_ids, "
+                "allowed_scopes, forked_from_version_id, published_by, published_at, "
+                "created_at, updated_at) VALUES "
+                "('revenue-ops-agent_v2', 'revenue-ops-agent', 2, '2.0.0', 'published', "
+                "'operator-customized prompt', 'custom-model', 0.7, 2048, :tools, :scopes, "
+                "'revenue-ops-agent_v1', 'operator', '2026-07-09', '2026-07-09', "
+                "'2026-07-09')"
+            ),
+            {"tools": '["query_revenue_metrics"]', "scopes": '["read_data"]'},
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO agent_versions (id, agent_id, version_number, semantic_version, "
+                "status, system_prompt, model, temperature, max_tokens, enabled_tool_ids, "
+                "allowed_scopes, forked_from_version_id, published_by, published_at, "
+                "created_at, updated_at) VALUES "
+                "('revenue-ops-agent_degraded', 'revenue-ops-agent', 0, "
+                "'0.9.0-degraded', 'published', '', 'gpt-4o-mini', 0.1, 1024, "
+                ":tools, :scopes, 'revenue-ops-agent_v1', 'bootstrap', '2026-07-09', "
+                "'2026-07-09', '2026-07-09')"
+            ),
+            {
+                "tools": '["query_revenue_metrics","fetch_account_details",'
+                '"search_docs","fetch_support_tickets"]',
+                "scopes": '["read_data","write_mock_action","request_approval"]',
+            },
+        )
+
+    _run_in_migration_context(
+        engine,
+        "upgrade",
+        path=TOOL_REGISTRY_MIGRATION_PATH,
+        module_name="migration_20260710_0015_tool_registry",
+    )
+
+    with engine.connect() as conn:
+        rows = {
+            row["id"]: row
+            for row in conn.execute(sa.text("SELECT * FROM agent_versions")).mappings()
+        }
+    v1 = rows["revenue-ops-agent_v1"]
+    assert v1["enabled_tool_ids"] == '["query_revenue_metrics"]'
+    assert v1["allowed_scopes"] == '["read_data"]'
+    assert v1["updated_at"] == "2026-07-09"
+
+    phase6 = rows["revenue-ops-agent_phase6"]
+    assert phase6["version_number"] == 3
+    assert phase6["forked_from_version_id"] == "revenue-ops-agent_v1"
+    assert phase6["system_prompt"] == v1["system_prompt"]
+    assert phase6["model"] == v1["model"]
+    assert phase6["temperature"] == v1["temperature"]
+    assert phase6["max_tokens"] == v1["max_tokens"]
+    assert set(json.loads(phase6["enabled_tool_ids"])) == {
+        "query_revenue_metrics",
+        "fetch_account_details",
+        "search_docs",
+        "fetch_support_tickets",
+        "create_mock_action",
+        "request_approval",
+        "run_eval",
+    }
+    assert set(json.loads(phase6["allowed_scopes"])) == {
+        "read_data",
+        "write_mock_action",
+        "request_approval",
+        "run_eval",
+    }
+
+    legacy_degraded = rows["revenue-ops-agent_degraded"]
+    assert legacy_degraded["version_number"] == 0
+    assert "run_eval" not in json.loads(legacy_degraded["enabled_tool_ids"])
+    assert "run_eval" not in json.loads(legacy_degraded["allowed_scopes"])
+
+    phase6_degraded = rows["revenue-ops-agent_phase6_degraded"]
+    assert phase6_degraded["version_number"] < 0
+    assert phase6_degraded["forked_from_version_id"] == "revenue-ops-agent_phase6"
+    assert "search_docs" not in json.loads(phase6_degraded["enabled_tool_ids"])
+    assert "run_eval" in json.loads(phase6_degraded["enabled_tool_ids"])
+    assert "run_eval" in json.loads(phase6_degraded["allowed_scopes"])
+
+    _run_in_migration_context(
+        engine,
+        "downgrade",
+        path=TOOL_REGISTRY_MIGRATION_PATH,
+        module_name="migration_20260710_0015_tool_registry",
+    )
+
+    assert "tools" not in inspect(engine).get_table_names()
+    with engine.connect() as conn:
+        downgraded_rows = {
+            row["id"]: row
+            for row in conn.execute(sa.text("SELECT * FROM agent_versions")).mappings()
+        }
+    assert "revenue-ops-agent_phase6" not in downgraded_rows
+    assert "revenue-ops-agent_phase6_degraded" not in downgraded_rows
+    assert downgraded_rows["revenue-ops-agent_v1"]["enabled_tool_ids"] == '["query_revenue_metrics"]'
+    assert downgraded_rows["revenue-ops-agent_v1"]["allowed_scopes"] == '["read_data"]'
+    assert downgraded_rows["revenue-ops-agent_v2"]["system_prompt"] == "operator-customized prompt"
+    assert "revenue-ops-agent_degraded" in downgraded_rows
+
+    _run_in_migration_context(
+        engine,
+        "upgrade",
+        path=TOOL_REGISTRY_MIGRATION_PATH,
+        module_name="migration_20260710_0015_tool_registry",
+    )
+
+    assert "tools" in inspect(engine).get_table_names()
+    with engine.connect() as conn:
+        recreated_rows = {
+            row["id"]: row
+            for row in conn.execute(sa.text("SELECT * FROM agent_versions")).mappings()
+        }
+    recreated_phase6 = recreated_rows["revenue-ops-agent_phase6"]
+    assert recreated_phase6["forked_from_version_id"] == "revenue-ops-agent_v1"
+    assert recreated_phase6["system_prompt"] == v1["system_prompt"]
+    assert recreated_phase6["model"] == v1["model"]
+    assert recreated_phase6["temperature"] == v1["temperature"]
+    assert recreated_phase6["max_tokens"] == v1["max_tokens"]
+    assert (
+        recreated_rows["revenue-ops-agent_phase6_degraded"]["forked_from_version_id"]
+        == "revenue-ops-agent_phase6"
+    )
+    engine.dispose()
+
+
+def _build_upgraded_tool_registry_database(tmp_path, name: str) -> Engine:
+    engine = create_engine(f"sqlite:///{tmp_path / name}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        insert_seed_data(session)
+        session.execute(
+            sa.delete(AgentVersion).where(
+                AgentVersion.id == "revenue-ops-agent_phase6_degraded"
+            )
+        )
+        session.execute(
+            sa.delete(AgentVersion).where(AgentVersion.id == "revenue-ops-agent_phase6")
+        )
+        session.commit()
+    with engine.begin() as conn:
+        conn.execute(sa.text("DROP TABLE tools"))
+    _run_in_migration_context(
+        engine,
+        "upgrade",
+        path=TOOL_REGISTRY_MIGRATION_PATH,
+        module_name="migration_20260710_0015_tool_registry",
+    )
+    return engine
+
+
+@pytest.mark.parametrize("reference_type", ["agent_run", "eval_result", "fork"])
+def test_tool_registry_downgrade_fails_closed_when_snapshot_is_referenced(
+    tmp_path,
+    reference_type: str,
+) -> None:
+    engine = _build_upgraded_tool_registry_database(
+        tmp_path, f"tool_registry_reference_{reference_type}.db"
+    )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with Session(engine) as session:
+        if reference_type == "fork":
+            session.add(
+                AgentVersion(
+                    id="operator_phase6_fork",
+                    agent_id="revenue-ops-agent",
+                    version_number=None,
+                    semantic_version=None,
+                    status="draft",
+                    system_prompt="operator draft",
+                    model="gpt-4o-mini",
+                    temperature=0.1,
+                    max_tokens=1024,
+                    enabled_tool_ids=["query_revenue_metrics"],
+                    allowed_scopes=["read_data"],
+                    forked_from_version_id="revenue-ops-agent_phase6",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        else:
+            run = AgentRun(
+                id=f"run_{reference_type}",
+                incident_id=None,
+                agent_id="revenue-ops-agent",
+                agent_version_id=(
+                status="succeeded",
+                trace_url=None,
+                trace_provider=None,
+                trace_metadata={},
+                input_payload={},
+                final_report=None,
+                token_estimate=0,
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_estimate_usd=0.0,
+                error=None,
+                started_at=now,
+                completed_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(run)
+            if reference_type == "eval_result":
+                eval_case_id = session.scalar(sa.select(EvalCase.id).limit(1))
+                assert eval_case_id is not None
+                session.add(
+                    EvalResult(
+                        id="eval_result_phase6_reference",
+                        eval_run_id="eval_run_phase6_reference",
+                        eval_case_id=eval_case_id,
+                        agent_run_id=run.id,
+                        status="passed",
+                        root_cause_score=1.0,
+                        citation_quality_score=1.0,
+                        action_safety_score=1.0,
+                        latency_ms=1,
+                        cost_estimate_usd=0.0,
+                        expected_root_cause="expected",
+                        actual_root_cause="expected",
+                        expected_evidence_types=[],
+                        observed_evidence_types=[],
+                        failure_reasons=[],
+                        example_output={},
+                        started_at=now,
+                        completed_at=now,
+                        created_at=now,
+                    )
+                )
+        session.commit()
+
+    with pytest.raises(RuntimeError, match="referenced"):
+        _run_in_migration_context(
+            engine,
+            "downgrade",
+            path=TOOL_REGISTRY_MIGRATION_PATH,
+            module_name="migration_20260710_0015_tool_registry",
+        )
+
+    assert "tools" in inspect(engine).get_table_names()
+    with Session(engine) as session:
+        assert session.get(AgentVersion, "revenue-ops-agent_phase6") is not None
+        assert session.get(AgentVersion, "revenue-ops-agent_phase6_degraded") is not None
+    engine.dispose()
+
+
+def test_tool_registry_downgrade_removes_unreferenced_bootstrap_owned_snapshots(
+    tmp_path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'tool_registry_bootstrap_owned.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        insert_seed_data(session)
+        assert (
+            session.get(AgentVersion, "revenue-ops-agent_phase6").published_by
+            == "bootstrap:phase6"
+        )
+        assert (
+            session.get(
+                AgentVersion, "revenue-ops-agent_phase6_degraded"
+            ).published_by
+            == "bootstrap"
+        )
+
+    _run_in_migration_context(
+        engine,
+        "downgrade",
+        path=TOOL_REGISTRY_MIGRATION_PATH,
+        module_name="migration_20260710_0015_tool_registry",
+    )
+
+    assert "tools" not in inspect(engine).get_table_names()
+    with Session(engine) as session:
+        assert session.get(AgentVersion, "revenue-ops-agent_phase6") is None
+        assert session.get(AgentVersion, "revenue-ops-agent_phase6_degraded") is None
+        assert session.get(AgentVersion, "revenue-ops-agent_v1") is not None
+    engine.dispose()

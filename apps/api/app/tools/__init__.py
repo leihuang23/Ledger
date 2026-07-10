@@ -10,6 +10,7 @@ from app.tools.policy import can_call_tool
 from app.tools.scopes import (
     ALLOWED_SCOPES,
     DEFAULT_V1_ALLOWED_SCOPES,
+    PHASE6_ALLOWED_SCOPES,
     TOOL_SCOPES,
     PermissionScope,
     scope_for_tool,
@@ -18,6 +19,7 @@ from app.tools.scopes import (
 __all__ = [
     "ALLOWED_SCOPES",
     "DEFAULT_V1_ALLOWED_SCOPES",
+    "PHASE6_ALLOWED_SCOPES",
     "PermissionScope",
     "TOOL_SCOPES",
     "can_call_tool",

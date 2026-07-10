@@ -16,13 +16,21 @@ from app.agent.service import (
     ACTIVE_RUN_STALE_AFTER,
     abandon_orphaned_active_runs,
 )
-from app.agents.service import DEFAULT_AGENT_ID, DEFAULT_AGENT_VERSION_ID
+from app.agents.service import (
+    DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_VERSION_ID,
+    PHASE6_AGENT_VERSION_ID,
+)
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun
-from app.runs.service import create_control_plane_run, transition_run
+from app.models import AgentRun, AgentRunStep
+from app.runs.service import (
+    create_control_plane_run,
+    record_blocked_control_plane_tool_attempt,
+    transition_run,
+)
 from app.seed import reseed_database
 
 # The canonical seeded checkout-retry-regression incident (used by docker-smoke
@@ -116,7 +124,7 @@ def test_post_runs_pauses_for_high_risk_approvals_then_resumes(
     response = client.post(
         "/runs",
         json={
-            "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+            "agent_version_id": PHASE6_AGENT_VERSION_ID,
             "incident_id": SEEDED_INCIDENT_ID,
             "run_inline": True,
         },
@@ -125,7 +133,7 @@ def test_post_runs_pauses_for_high_risk_approvals_then_resumes(
     assert response.status_code == 202
     payload = response.json()
     assert payload["status"] == "waiting_for_approval"
-    assert payload["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
+    assert payload["agent_version_id"] == PHASE6_AGENT_VERSION_ID
     assert payload["incident_id"] == SEEDED_INCIDENT_ID
     assert payload["final_report"] is not None
     assert payload["steps"]
@@ -213,6 +221,42 @@ def test_control_plane_run_allows_nullable_incident_id(
     assert detail.incident_id is None
     assert detail.agent_version_id == DEFAULT_AGENT_VERSION_ID
     assert detail.status == "queued"
+
+
+def test_blocked_control_plane_attempt_commits_complete_audit_once(
+    session_factory: Callable[[], Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denied operation has no worker, so it must never expose an active state."""
+    _seed(session_factory)
+    with session_factory() as session:
+        commit_count = 0
+        original_commit = session.commit
+
+        def counted_commit() -> None:
+            nonlocal commit_count
+            commit_count += 1
+            original_commit()
+
+        monkeypatch.setattr(session, "commit", counted_commit)
+        run_id = record_blocked_control_plane_tool_attempt(
+            session,
+            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            tool_name="run_eval",
+            blocked_reason="scope_not_allowed",
+            input_payload={"operation": "run_eval", "dataset_id": "mrr-drop-suite"},
+        )
+
+        assert commit_count == 1
+        session.expire_all()
+        run = session.get(AgentRun, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.started_at is not None
+        assert run.completed_at is not None
+        step = session.query(AgentRunStep).filter_by(run_id=run_id).one()
+        assert step.status == "blocked"
+        assert step.blocked_reason == "scope_not_allowed"
 
 
 def test_illegal_run_transition_returns_409(
@@ -615,7 +659,7 @@ def test_post_runs_token_gated_in_demo_env(
         unauthed_create = client.post(
             "/runs",
             json={
-                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "agent_version_id": PHASE6_AGENT_VERSION_ID,
                 "incident_id": SEEDED_INCIDENT_ID,
                 "run_inline": True,
             },
@@ -649,7 +693,7 @@ def test_post_runs_token_gated_in_demo_env(
         authed = client.post(
             "/runs",
             json={
-                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "agent_version_id": PHASE6_AGENT_VERSION_ID,
                 "incident_id": SEEDED_INCIDENT_ID,
                 "run_inline": True,
             },

@@ -30,6 +30,8 @@ from app.evals.service import (
 )
 from app.evals.tasks import run_eval_suite_task
 from app.models import AgentVersion, EvalDataset
+from app.runs.service import record_blocked_control_plane_tool_attempt
+from app.tools.policy import can_call_tool
 
 _settings = get_settings()
 
@@ -107,6 +109,24 @@ def run_dataset(
         raise HTTPException(
             status_code=404,
             detail=f"Unknown or unpublished agent version id: {payload.agent_version_id}",
+        )
+    allowed, blocked_reason = can_call_tool(version, "run_eval")
+    if not allowed:
+        reason = blocked_reason or "tool_not_enabled"
+        blocked_run_id = record_blocked_control_plane_tool_attempt(
+            db,
+            agent_version_id=version.id,
+            tool_name="run_eval",
+            blocked_reason=reason,
+            input_payload={
+                "operation": "run_eval",
+                "dataset_id": dataset_id,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"run_eval blocked: {reason}",
+            headers={"X-Agent-Run-Id": blocked_run_id},
         )
     eval_run_id = f"evalrun_{uuid4().hex[:16]}"
     _enqueue_eval_dataset(eval_run_id, dataset_id, version.id)

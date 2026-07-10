@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models import Agent, AgentVersion
 from app.seed import reseed_database
-from app.agents.service import get_default_published_version
+from app.agents.service import PHASE6_ENABLED_TOOL_IDS, get_default_published_version
 from app.agent.persistence import utcnow_naive
 
 
@@ -102,12 +102,12 @@ class TestAgentsList:
                         updated_at=now,
                     ),
                     AgentVersion(
-                        id="revenue-ops-agent_list_v2",
+                        id="revenue-ops-agent_list_v3",
                         agent_id="revenue-ops-agent",
-                        version_number=2,
-                        semantic_version="2.0.0",
+                        version_number=3,
+                        semantic_version="3.0.0",
                         status="published",
-                        system_prompt="v2",
+                        system_prompt="v3",
                         model="gpt-4o-mini",
                         temperature=0.1,
                         max_tokens=1024,
@@ -126,7 +126,7 @@ class TestAgentsList:
         response = client.get("/agents")
         assert response.status_code == 200
         agent = next(a for a in response.json()["agents"] if a["id"] == "revenue-ops-agent")
-        assert agent["latest_published_version"]["id"] == "revenue-ops-agent_list_v2"
+        assert agent["latest_published_version"]["id"] == "revenue-ops-agent_list_v3"
 
 
 class TestAgentDetail:
@@ -170,12 +170,12 @@ class TestAgentDetail:
                         updated_at=now,
                     ),
                     AgentVersion(
-                        id="revenue-ops-agent_detail_v2",
+                        id="revenue-ops-agent_detail_v3",
                         agent_id="revenue-ops-agent",
-                        version_number=2,
-                        semantic_version="2.0.0",
+                        version_number=3,
+                        semantic_version="3.0.0",
                         status="published",
-                        system_prompt="v2",
+                        system_prompt="v3",
                         model="gpt-4o-mini",
                         temperature=0.1,
                         max_tokens=1024,
@@ -195,8 +195,8 @@ class TestAgentDetail:
         assert response.status_code == 200
         body = response.json()
         published = [v for v in body["versions"] if v["status"] == "published"]
-        assert body["latest_published_version"]["id"] == "revenue-ops-agent_detail_v2"
-        assert published[0]["id"] == "revenue-ops-agent_detail_v2"
+        assert body["latest_published_version"]["id"] == "revenue-ops-agent_detail_v3"
+        assert published[0]["id"] == "revenue-ops-agent_detail_v3"
         assert published[-1]["id"] == "revenue-ops-agent_detail_legacy_null"
 
     def test_get_nonexistent_agent_returns_404(self, client: TestClient) -> None:
@@ -357,7 +357,7 @@ class TestAgentVersions:
         assert version["semantic_version"] is None
         assert version["model"] == "gpt-4o-mini"
         assert version["system_prompt"] == "Custom draft prompt"
-        assert version["forked_from_version_id"] == "revenue-ops-agent_v1"
+        assert version["forked_from_version_id"] == "revenue-ops-agent_phase6"
 
     def test_create_draft_version_from_specific_version(self, client: TestClient) -> None:
         version_resp = client.post(
@@ -395,9 +395,8 @@ class TestAgentVersions:
         self, client: TestClient
     ) -> None:
         """A new version created without a source to fork from defaults to the v1
-        scopes (read_data, write_mock_action, request_approval) so the run path
-        doesn't silently block every tool as scope_not_allowed. Mirrors the
-        migration 0012 backfill for existing v1 data."""
+        scopes so each built-in capability can be attached without silently
+        failing policy. Token gates remain required for eval execution."""
         client.post(
             "/agents",
             json={
@@ -570,6 +569,48 @@ class TestSeedIdempotency:
             assert v1.version_number == 1
             assert v1.semantic_version == "1.0.0"
             assert isinstance(v1.system_prompt, str)
+            assert set(v1.enabled_tool_ids) == {
+                "query_revenue_metrics",
+                "fetch_account_details",
+                "search_docs",
+                "fetch_support_tickets",
+            }
+            assert set(v1.allowed_scopes) == {
+                "read_data",
+                "write_mock_action",
+                "request_approval",
+            }
+
+    def test_seed_creates_published_phase6_snapshot(
+        self, session_factory: Callable[[], Session]
+    ) -> None:
+        with session_factory() as db_session:
+            phase6 = db_session.get(AgentVersion, "revenue-ops-agent_phase6")
+            assert phase6 is not None
+            assert phase6.status == "published"
+            assert phase6.forked_from_version_id == "revenue-ops-agent_v1"
+            assert set(phase6.enabled_tool_ids) == set(PHASE6_ENABLED_TOOL_IDS)
+            assert set(phase6.allowed_scopes) == {
+                "read_data",
+                "write_mock_action",
+                "request_approval",
+                "run_eval",
+            }
+
+    def test_seed_creates_phase6_degraded_eval_candidate(
+        self, session_factory: Callable[[], Session]
+    ) -> None:
+        with session_factory() as db_session:
+            degraded = db_session.get(
+                AgentVersion, "revenue-ops-agent_phase6_degraded"
+            )
+            assert degraded is not None
+            assert degraded.status == "published"
+            assert degraded.version_number < 0
+            assert degraded.forked_from_version_id == "revenue-ops-agent_phase6"
+            assert "search_docs" not in degraded.enabled_tool_ids
+            assert "run_eval" in degraded.enabled_tool_ids
+            assert "run_eval" in degraded.allowed_scopes
 
     def test_seed_is_idempotent(self, session_factory: Callable[[], Session]) -> None:
         from app.seed import _seed_control_plane_agent
@@ -588,6 +629,61 @@ class TestSeedIdempotency:
                 )
             )
             assert after_count == before_count
+
+    def test_existing_database_seed_does_not_mutate_published_version_permissions(
+        self, session_factory: Callable[[], Session]
+    ) -> None:
+        """Startup seeding must preserve an operator-narrowed published snapshot."""
+        from app.seed import ensure_seeded_if_empty
+
+        with session_factory() as db_session:
+            version = db_session.get(AgentVersion, "revenue-ops-agent_v1")
+            assert version is not None
+            version.enabled_tool_ids = ["query_revenue_metrics"]
+            version.allowed_scopes = ["read_data"]
+            db_session.commit()
+            snapshot = (
+                list(version.enabled_tool_ids),
+                list(version.allowed_scopes),
+                version.updated_at,
+            )
+
+            assert ensure_seeded_if_empty(db_session) is None
+            assert ensure_seeded_if_empty(db_session) is None
+            db_session.refresh(version)
+
+            assert (
+                version.enabled_tool_ids,
+                version.allowed_scopes,
+                version.updated_at,
+            ) == snapshot
+
+    def test_existing_database_seed_does_not_restore_phase6_permissions(
+        self, session_factory: Callable[[], Session]
+    ) -> None:
+        """Routine startup must not overwrite an operator-narrowed Phase 6 snapshot."""
+        from app.seed import ensure_seeded_if_empty
+
+        with session_factory() as db_session:
+            version = db_session.get(AgentVersion, "revenue-ops-agent_phase6")
+            assert version is not None
+            version.enabled_tool_ids = ["query_revenue_metrics"]
+            version.allowed_scopes = ["read_data"]
+            db_session.commit()
+            snapshot = (
+                list(version.enabled_tool_ids),
+                list(version.allowed_scopes),
+                version.updated_at,
+            )
+
+            assert ensure_seeded_if_empty(db_session) is None
+            db_session.refresh(version)
+
+            assert (
+                version.enabled_tool_ids,
+                version.allowed_scopes,
+                version.updated_at,
+            ) == snapshot
 
 
 class TestValidation:
@@ -795,12 +891,12 @@ class TestVersionOrdering:
                         updated_at=now,
                     ),
                     AgentVersion(
-                        id="revenue-ops-agent_v2_ordering",
+                        id="revenue-ops-agent_v3_ordering",
                         agent_id="revenue-ops-agent",
-                        version_number=2,
-                        semantic_version="2.0.0",
+                        version_number=3,
+                        semantic_version="3.0.0",
                         status="published",
-                        system_prompt="v2",
+                        system_prompt="v3",
                         model="gpt-4o-mini",
                         temperature=0.1,
                         max_tokens=1024,
@@ -819,7 +915,7 @@ class TestVersionOrdering:
             default = get_default_published_version(db_session)
 
             assert default is not None
-            assert default.id == "revenue-ops-agent_v2_ordering"
+            assert default.id == "revenue-ops-agent_v3_ordering"
 
 
 class TestCrossAgentSecurity:

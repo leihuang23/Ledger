@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { approveApprovalFromQueue, rejectApprovalFromQueue } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import type {
   AgentSummary,
   AgentVersionSummary,
@@ -9,6 +10,7 @@ import type {
 } from '@/lib/api';
 import { listAgents, listAgentVersions, listApprovalRequests } from '@/lib/api';
 import { formatDateTime, formatScenario } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +32,7 @@ export default async function ApprovalsPage({
   searchParams: Promise<ApprovalSearchParams>;
 }) {
   const params = await searchParams;
+  const mutationsEnabled = operatorMutationsEnabled();
   const status = readStatus(params.status);
   const riskLevel = readRiskLevel(params.risk_level);
   const [result, versions] = await Promise.all([
@@ -109,6 +112,10 @@ export default async function ApprovalsPage({
           <span>{result.ok ? result.data.length : 0} matching</span>
         </div>
 
+        {!mutationsEnabled && result.ok && result.data.some((item) => item.status === 'pending') ? (
+          <ReadOnlyOperatorNotice />
+        ) : null}
+
         {!result.ok ? (
           <div className="panel-message error-detail">Failed to load approvals: {result.error}</div>
         ) : result.data.length === 0 ? (
@@ -156,13 +163,21 @@ export default async function ApprovalsPage({
                       <div className="approval-buttons">
                         <form action={approveApprovalFromQueue}>
                           <ApprovalDecisionFields approvalId={approval.id} params={params} />
-                          <button type="submit" className="action-button">
+                          <button
+                            type="submit"
+                            className="action-button"
+                            disabled={!mutationsEnabled}
+                          >
                             Approve
                           </button>
                         </form>
                         <form action={rejectApprovalFromQueue}>
                           <ApprovalDecisionFields approvalId={approval.id} params={params} />
-                          <button type="submit" className="action-button secondary-action">
+                          <button
+                            type="submit"
+                            className="action-button secondary-action"
+                            disabled={!mutationsEnabled}
+                          >
                             Reject
                           </button>
                         </form>

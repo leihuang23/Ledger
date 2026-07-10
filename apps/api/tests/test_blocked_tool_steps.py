@@ -20,6 +20,7 @@ import app.models  # noqa: F401  (registers mapped classes on Base.metadata)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.agents.service import PHASE6_ENABLED_TOOL_IDS
 from app.models import Incident
 from app.seed import reseed_database
 
@@ -79,8 +80,12 @@ def test_scope_removed_records_blocked_step(
         version_resp = client.post(
             "/agents/revenue-ops-agent/versions",
             json={
-                "enabled_tool_ids": _READ_DATA_TOOLS,
-                "allowed_scopes": ["write_mock_action", "request_approval"],
+                "enabled_tool_ids": list(PHASE6_ENABLED_TOOL_IDS),
+                "allowed_scopes": [
+                    "write_mock_action",
+                    "request_approval",
+                    "run_eval",
+                ],
             },
         )
         assert version_resp.status_code == 201
@@ -114,7 +119,7 @@ def test_scope_removed_records_blocked_step(
     for step in blocked_steps:
         assert step["blocked_reason"] == "scope_not_allowed"
         assert step["outputs"]["tool_disabled"] is True
-    # No read-data tool was actually dispatched (``propose_actions`` and other
+    # No read-data tool was actually dispatched (action tools and other
     # internal stages may still succeed).
     succeeded_read_tools = {
         step["tool_name"]
@@ -140,7 +145,7 @@ def test_enabled_tool_with_allowed_scope_still_runs(
         # omitting allowed_scopes here.
         version_resp = client.post(
             "/agents/revenue-ops-agent/versions",
-            json={"enabled_tool_ids": _READ_DATA_TOOLS},
+            json={"enabled_tool_ids": list(PHASE6_ENABLED_TOOL_IDS)},
         )
         assert version_resp.status_code == 201
         version_id = version_resp.json()["id"]
@@ -169,3 +174,115 @@ def test_enabled_tool_with_allowed_scope_still_runs(
     tool_steps = [s for s in payload["steps"] if s.get("tool_name")]
     assert tool_steps, "expected dispatched tool steps"
     assert all(s["status"] == "succeeded" for s in tool_steps)
+
+
+def test_action_scope_removal_blocks_mock_actions_and_approval_requests(
+    session_factory: Callable[[], Session],
+) -> None:
+    incident_id = _seed_incident_id(session_factory)
+    client = _client_with_session(session_factory)
+    try:
+        version_resp = client.post(
+            "/agents/revenue-ops-agent/versions",
+            json={
+                "enabled_tool_ids": list(PHASE6_ENABLED_TOOL_IDS),
+                "allowed_scopes": ["read_data", "run_eval"],
+            },
+        )
+        assert version_resp.status_code == 201
+        version_id = version_resp.json()["id"]
+        assert client.post(
+            f"/agents/revenue-ops-agent/versions/{version_id}/publish"
+        ).status_code == 200
+
+        response = client.post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "run_inline": True,
+                "force": True,
+                "agent_version_id": version_id,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    blocked = {
+        step["tool_name"]: step["blocked_reason"]
+        for step in payload["steps"]
+        if step["status"] == "blocked"
+    }
+    assert blocked["create_mock_action"] == "scope_not_allowed"
+    assert blocked["request_approval"] == "scope_not_allowed"
+    assert payload["mock_actions"] == []
+
+
+def test_approval_scope_removal_preserves_low_risk_mock_actions(
+    session_factory: Callable[[], Session],
+) -> None:
+    incident_id = _seed_incident_id(session_factory)
+    client = _client_with_session(session_factory)
+    try:
+        version_resp = client.post(
+            "/agents/revenue-ops-agent/versions",
+            json={
+                "enabled_tool_ids": list(PHASE6_ENABLED_TOOL_IDS),
+                "allowed_scopes": ["read_data", "write_mock_action", "run_eval"],
+            },
+        )
+        assert version_resp.status_code == 201
+        version_id = version_resp.json()["id"]
+        assert client.post(
+            f"/agents/revenue-ops-agent/versions/{version_id}/publish"
+        ).status_code == 200
+
+        first = client.post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "run_inline": True,
+                "force": True,
+                "agent_version_id": version_id,
+            },
+        )
+        second = client.post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "run_inline": True,
+                "agent_version_id": version_id,
+            },
+        )
+        third = client.post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "run_inline": True,
+                "agent_version_id": version_id,
+            },
+        )
+        approvals = client.get(f"/approvals?agent_version_id={version_id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 201
+    payload = first.json()
+    assert {action["action_type"] for action in payload["mock_actions"]} == {
+        "draft_slack_message",
+        "create_task",
+    }
+    assert approvals.status_code == 200
+    assert approvals.json() == []
+    blocked = [
+        step
+        for step in payload["steps"]
+        if step["tool_name"] == "request_approval" and step["status"] == "blocked"
+    ]
+    assert len(blocked) == 1
+    initial_step_ids = [step["id"] for step in payload["steps"]]
+    assert second.status_code == 200
+    assert third.status_code == 200
+    assert [step["id"] for step in second.json()["steps"]] == initial_step_ids
+    assert [step["id"] for step in third.json()["steps"]] == initial_step_ids

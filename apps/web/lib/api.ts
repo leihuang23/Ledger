@@ -791,6 +791,31 @@ export type AgentVersionDetailResult =
   | { ok: true; data: AgentVersionDetail }
   | { ok: false; error: string };
 
+export type ToolPermissionScope =
+  | 'read_data'
+  | 'write_mock_action'
+  | 'request_approval'
+  | 'run_eval';
+
+export type RegisteredTool = {
+  id: string;
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  permission_scope: ToolPermissionScope;
+  implementation_ref: string;
+};
+
+export type ToolList = {
+  total: number;
+  tools: RegisteredTool[];
+};
+
+export type ToolListResult =
+  | { ok: true; data: ToolList }
+  | { ok: false; error: string };
+
 export type PublishVersionResult =
   | { ok: true; data: PublishResult }
   | { ok: false; error: string };
@@ -1811,6 +1836,31 @@ export async function listAgents(
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Agents endpoint unavailable',
+    };
+  }
+}
+
+export async function listTools(): Promise<ToolListResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/tools`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Tools endpoint returned HTTP ${response.status}`,
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as ToolList,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Tool registry unavailable',
     };
   }
 }

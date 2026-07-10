@@ -62,6 +62,21 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        """Use the installed psycopg v3 driver for managed Postgres URLs.
+
+        Render and similar platforms expose ``postgresql://`` connection
+        strings. SQLAlchemy otherwise interprets that scheme as psycopg2,
+        which this project intentionally does not install.
+        """
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+psycopg://", 1)
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        return value
+
     @field_validator(
         "document_ingest_token",
         "demo_operator_token",

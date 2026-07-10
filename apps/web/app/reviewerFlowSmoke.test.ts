@@ -22,6 +22,22 @@ test('dashboard page exposes anomaly and navigation review surfaces', () => {
   assert.match(nav, /href[:=]\s*['"]\/approvals['"]/);
   assert.match(nav, /href[:=]\s*['"]\/knowledge['"]/);
   assert.match(nav, /href[:=]\s*['"]\/evals['"]/);
+  assert.match(nav, /href[:=]\s*['"]\/tools['"]/);
+});
+
+test('tool registry exposes governed scopes and expandable input/output schemas', () => {
+  const source = readWorkspaceFile('app/tools/page.tsx');
+  const apiSource = readWorkspaceFile('lib/api.ts');
+
+  assert.match(source, /Tool registry/);
+  assert.match(source, /Permission scope/);
+  assert.match(source, /Input schema/);
+  assert.match(source, /Output schema/);
+  assert.match(source, /implementation_ref/);
+  assert.match(source, /<details/);
+  assert.match(apiSource, /\/tools/);
+  assert.match(apiSource, /input_schema/);
+  assert.match(apiSource, /output_schema/);
 });
 
 test('incident page exposes evidence needed before launching an investigation', () => {
@@ -50,14 +66,84 @@ test('agent run page exposes report, trace, cost, citations, approvals, and step
   assert.match(source, /Tool-step history/);
 });
 
-test('server actions forward demo operator credentials without public env exposure', () => {
+test('server actions redirect safely unless the protected operator UI is explicitly enabled', () => {
   const apiSource = readWorkspaceFile('lib/api.ts');
   const actionSource = readWorkspaceFile('app/actions.ts');
+  const operatorSource = readWorkspaceFile('lib/operatorMutations.ts');
+  const layoutSource = readWorkspaceFile('app/layout.tsx');
+  const dashboardSource = readWorkspaceFile('app/page.tsx');
 
   assert.match(apiSource, /X-Demo-Operator-Token/);
   assert.doesNotMatch(apiSource, /process\.env\.DEMO_OPERATOR_TOKEN/);
   assert.match(actionSource, /process\.env\.DEMO_OPERATOR_TOKEN/);
+  assert.match(actionSource, /requireOperatorMutationsEnabled\(\)/);
+  const exportedActions = actionSource.match(/^export async function /gm) ?? [];
+  const mutationGuards = actionSource.match(/requireOperatorMutationsEnabled\(\);/g) ?? [];
+  assert.equal(mutationGuards.length, exportedActions.length);
   assert.doesNotMatch(actionSource, /NEXT_PUBLIC_DEMO_OPERATOR_TOKEN/);
+  assert.match(operatorSource, /OPERATOR_UI_ENABLED/);
+  assert.match(operatorSource, /READ_ONLY_OPERATOR_DESTINATION = '\/\?read_only=1'/);
+  assert.match(operatorSource, /redirect\(READ_ONLY_OPERATOR_DESTINATION\)/);
+  assert.doesNotMatch(operatorSource, /throw new Error/);
+  assert.match(layoutSource, /Public read-only demo/);
+  assert.match(dashboardSource, /No operator action was performed/);
+});
+
+test('public server-rendered mutation controls are read-only while GET review forms stay active', () => {
+  const mutationSurfaces: Array<[string, string[]]> = [
+    ['app/page.tsx', ['openIncidentFromAnomaly']],
+    ['app/incidents/[incidentId]/page.tsx', ['startInvestigationFromIncident']],
+    ['app/agents/[agentId]/page.tsx', ['saveAgentVersionDraft']],
+    [
+      'app/agents/[agentId]/versions/[versionId]/page.tsx',
+      ['launchControlPlaneRun', 'publishAgentVersion', 'saveAgentVersionDraft'],
+    ],
+    ['app/evals/page.tsx', ['runEvalDatasetFromStudio']],
+    ['app/approvals/page.tsx', ['approveApprovalFromQueue', 'rejectApprovalFromQueue']],
+    ['app/runs/[runId]/page.tsx', ['approveApprovalFromRun', 'rejectApprovalFromRun']],
+    ['app/agent/runs/[runId]/page.tsx', ['approveApprovalFromRun', 'rejectApprovalFromRun']],
+  ];
+
+  for (const [path, actionNames] of mutationSurfaces) {
+    const source = readWorkspaceFile(path);
+    assert.match(source, /operatorMutationsEnabled/);
+    assert.match(source, /ReadOnlyOperatorNotice/);
+    for (const actionName of actionNames) {
+      const formPattern = new RegExp(
+        `<form action=\\{${actionName}\\}[\\s\\S]*?<\\/form>`,
+        'g',
+      );
+      const forms = source.match(formPattern) ?? [];
+      assert.ok(forms.length > 0, `${path} must render ${actionName}`);
+      for (const form of forms) {
+        assert.match(form, /disabled=\{!mutationsEnabled/);
+      }
+    }
+  }
+
+  const noticeSource = readWorkspaceFile('app/ReadOnlyOperatorNotice.tsx');
+  assert.match(noticeSource, /public read-only demo/);
+  assert.match(noticeSource, /protected operator\s+deployment/);
+
+  const approvalSource = readWorkspaceFile('app/approvals/page.tsx');
+  const approvalFilterForm = approvalSource.match(/<form action="\/approvals"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(approvalFilterForm);
+  assert.match(approvalFilterForm, /method="get"/);
+  assert.doesNotMatch(approvalFilterForm, /disabled=\{!mutationsEnabled/);
+
+  const evalSource = readWorkspaceFile('app/evals/page.tsx');
+  const evalCompareForm = evalSource.match(/<form action="\/evals"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(evalCompareForm);
+  assert.match(evalCompareForm, /method="get"/);
+  assert.doesNotMatch(evalCompareForm, /disabled=\{!mutationsEnabled/);
+});
+
+test('stateful portfolio suite disables retries at suite scope', () => {
+  const source = readWorkspaceFile('e2e/portfolio-readiness.spec.ts');
+
+  assert.match(source, /test\.describe\.serial/);
+  assert.match(source, /test\.describe\.configure\(\{ retries: 0 \}\)/);
+  assert.match(source, /mutates one shared portfolio environment/);
 });
 
 test('eval studio exposes datasets, per-version runs, results, and regression comparison', () => {

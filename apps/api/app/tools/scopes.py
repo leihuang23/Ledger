@@ -1,13 +1,4 @@
-"""Tool permission scopes and the in-code tool registry.
-
-Phase 2's ``tools`` table / tool-registry domain was reverted as scope creep
-(see ``AGENTS.md``: prefer a narrow, verified system). Phase 3 keeps tool
-permission enforcement without a ``tools`` table by holding the scope enum and
-the tool→scope mapping in code here, and the policy in ``app.tools.policy``.
-
-Adding a new tool means adding its id to ``TOOL_SCOPES`` here and registering
-its callable in ``app.agent.tools``. No DB row, no migration.
-"""
+"""Fixed permission scopes and the runtime tool-to-scope policy mapping."""
 
 from __future__ import annotations
 
@@ -39,15 +30,21 @@ TOOL_SCOPES: dict[str, str] = {
     "fetch_account_details": "read_data",
     "search_docs": "read_data",
     "fetch_support_tickets": "read_data",
+    "create_mock_action": "write_mock_action",
+    "request_approval": "request_approval",
+    "run_eval": "run_eval",
 }
 
-# PRD §9.5: the v1 published version ships with these scopes. ``run_eval`` is
-# intentionally excluded for v1 — eval triggering is operator-gated separately
-# (EVAL_RUN_TOKEN) and is not part of the investigation run path.
+# PRD §9.5: the immutable v1 snapshot has the original three scopes.
 DEFAULT_V1_ALLOWED_SCOPES: tuple[str, ...] = (
     "read_data",
     "write_mock_action",
     "request_approval",
+)
+
+PHASE6_ALLOWED_SCOPES: tuple[str, ...] = (
+    *DEFAULT_V1_ALLOWED_SCOPES,
+    "run_eval",
 )
 
 

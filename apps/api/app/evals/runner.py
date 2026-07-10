@@ -16,7 +16,10 @@ from sqlalchemy.orm import Session
 from app.agent.persistence import utcnow_naive
 from app.agent.schemas import AgentRunDetail
 from app.agent.service import start_investigation_run
-from app.agents.service import DEFAULT_AGENT_ID, DEFAULT_AGENT_VERSION_ID
+from app.agents.service import (
+    DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_VERSION_ID,
+)
 from app.celery_app import CELERY_TASK_TIME_LIMIT
 from app.db.session import SessionLocal
 from app.evals.schemas import EvalResultsReport, EvalResultRead, EvalRunSummary
@@ -63,6 +66,10 @@ def run_eval_suite(
     dataset_id: str | None = None,
     agent_version_id: str | None = None,
 ) -> EvalRunSummary:
+    # The legacy/CLI suite remains pinned to the immutable Project1 v1 baseline.
+    # Phase 5 dataset runs pass an explicit candidate id (including Phase 6)
+    # and evaluate that selected version instead.
+    effective_agent_version_id = agent_version_id or DEFAULT_AGENT_VERSION_ID
     case_stmt = select(EvalCase)
     if dataset_id is not None:
         case_stmt = case_stmt.join(
@@ -79,17 +86,12 @@ def run_eval_suite(
         case_start = utcnow_naive()
         latency_start = perf_counter()
         try:
-            if agent_version_id is None:
-                run_detail, _created = start_investigation_run(
-                    session, case.incident_id, force=True
-                )
-            else:
-                run_detail, _created = start_investigation_run(
-                    session,
-                    case.incident_id,
-                    force=True,
-                    agent_version_id=agent_version_id,
-                )
+            run_detail, _created = start_investigation_run(
+                session,
+                case.incident_id,
+                force=True,
+                agent_version_id=effective_agent_version_id,
+            )
             latency_ms = int((perf_counter() - latency_start) * 1000)
             case_completed = utcnow_naive()
             result = _build_eval_result(
@@ -110,7 +112,7 @@ def run_eval_suite(
                 error=str(exc),
                 started_at=case_start,
                 completed_at=case_completed,
-                agent_version_id=agent_version_id,
+                agent_version_id=effective_agent_version_id,
             )
             result = _build_failed_eval_result(
                 eval_run_id=eval_run_id,
@@ -121,7 +123,7 @@ def run_eval_suite(
                 started_at=case_start,
                 completed_at=case_completed,
                 dataset_id=dataset_id,
-                agent_version_id=agent_version_id,
+                agent_version_id=effective_agent_version_id,
             )
         # Persist each result incrementally so that a Celery timeout or
         # process crash does not lose already-completed cases.

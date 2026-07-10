@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { runEvalDatasetFromStudio } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import type {
   AgentSummary,
   AgentVersionSummary,
@@ -24,6 +25,7 @@ import {
   formatScenario,
   formatUsd,
 } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 export const dynamic = 'force-dynamic';
 
@@ -269,6 +271,8 @@ function RunControls({
   versionA: string | undefined;
   versionB: string | undefined;
 }) {
+  const mutationsEnabled = operatorMutationsEnabled();
+
   return (
     <section className="panel eval-controls-panel">
       <div className="panel-header">
@@ -281,6 +285,7 @@ function RunControls({
         <div className="eval-control-grid">
           <form action={runEvalDatasetFromStudio} className="eval-control-form">
             <h3>Run dataset</h3>
+            {!mutationsEnabled ? <ReadOnlyOperatorNotice /> : null}
             <input name="dataset_id" type="hidden" value={datasetId} />
             <input name="version_a" type="hidden" value={versionA} />
             <input name="version_b" type="hidden" value={versionB} />
@@ -289,6 +294,7 @@ function RunControls({
               <select
                 className="field-select"
                 defaultValue={resultsVersionId}
+                disabled={!mutationsEnabled}
                 name="agent_version_id"
                 required
               >
@@ -299,7 +305,11 @@ function RunControls({
                 ))}
               </select>
             </label>
-            <button className="action-button" disabled={!datasetId} type="submit">
+            <button
+              className="action-button"
+              disabled={!mutationsEnabled || !datasetId}
+              type="submit"
+            >
               Run selected dataset
             </button>
           </form>

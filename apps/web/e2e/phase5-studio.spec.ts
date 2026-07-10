@@ -8,8 +8,8 @@ test.describe('Phase 5 quality controls', () => {
     await expect(page.getByRole('complementary', { name: 'Eval datasets' })).toBeVisible();
 
     const runVersion = page.locator('select[name="agent_version_id"]');
-    const versionA = 'revenue-ops-agent_v1';
-    const versionB = 'revenue-ops-agent_degraded';
+    const versionA = 'revenue-ops-agent_phase6';
+    const versionB = 'revenue-ops-agent_phase6_degraded';
     await expect(runVersion.locator(`option[value="${versionA}"]`)).toHaveCount(1);
     await expect(runVersion.locator(`option[value="${versionB}"]`)).toHaveCount(1);
 

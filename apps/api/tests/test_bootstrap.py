@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.models  # noqa: F401
 from app.bootstrap import bootstrap_lock, run_startup_bootstrap
 from app.db.base import Base
-from app.models import Account
+from app.models import Account, AgentVersion
 
 
 @pytest.fixture()
@@ -107,3 +107,68 @@ def test_run_startup_bootstrap_skips_reseed_when_data_exists(
     run_migrations.assert_called_once()
     with session_factory() as session:
         assert session.scalar(select(func.count()).select_from(Account)) == 60
+
+
+def test_run_startup_bootstrap_restores_missing_phase6_snapshots_idempotently(
+    session_factory: Callable[[], Session],
+    monkeypatch,
+) -> None:
+    from app.seed import reseed_database
+
+    with session_factory() as session:
+        reseed_database(session)
+        v1 = session.get(AgentVersion, "revenue-ops-agent_v1")
+        assert v1 is not None
+        v1.system_prompt = "operator-customized v1 prompt"
+        v1.model = "custom-model"
+        v1.temperature = 0.7
+        v1.max_tokens = 2048
+        v1.enabled_tool_ids = ["query_revenue_metrics"]
+        v1.allowed_scopes = ["read_data"]
+        session.delete(
+            session.get(AgentVersion, "revenue-ops-agent_phase6_degraded")
+        )
+        session.flush()
+        session.delete(session.get(AgentVersion, "revenue-ops-agent_phase6"))
+        session.commit()
+
+    with session_factory() as session:
+        monkeypatch.setattr("app.bootstrap.engine", session.get_bind())
+    monkeypatch.setattr("app.bootstrap.SessionLocal", session_factory)
+    monkeypatch.setattr("app.bootstrap.run_migrations", lambda: None)
+
+    run_startup_bootstrap()
+    run_startup_bootstrap()
+
+    with session_factory() as session:
+        v1 = session.get(AgentVersion, "revenue-ops-agent_v1")
+        phase6 = session.get(AgentVersion, "revenue-ops-agent_phase6")
+        degraded = session.get(AgentVersion, "revenue-ops-agent_phase6_degraded")
+        assert v1 is not None
+        assert phase6 is not None
+        assert degraded is not None
+        assert phase6.forked_from_version_id == v1.id
+        assert phase6.system_prompt == v1.system_prompt
+        assert phase6.model == v1.model
+        assert phase6.temperature == v1.temperature
+        assert phase6.max_tokens == v1.max_tokens
+        assert v1.enabled_tool_ids == ["query_revenue_metrics"]
+        assert v1.allowed_scopes == ["read_data"]
+        assert degraded.forked_from_version_id == phase6.id
+        assert degraded.system_prompt == phase6.system_prompt
+        assert degraded.model == phase6.model
+        assert degraded.temperature == phase6.temperature
+        assert degraded.max_tokens == phase6.max_tokens
+        fixed_snapshot_count = session.scalar(
+            select(func.count())
+            .select_from(AgentVersion)
+            .where(
+                AgentVersion.id.in_(
+                    [
+                        "revenue-ops-agent_phase6",
+                        "revenue-ops-agent_phase6_degraded",
+                    ]
+                )
+            )
+        )
+        assert fixed_snapshot_count == 2

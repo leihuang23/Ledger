@@ -41,6 +41,6 @@ USER opsagent
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
 
 CMD ["./entrypoint.sh"]

@@ -13,7 +13,8 @@
     "lint": "next typegen && tsc --noEmit",
     "test": "node --experimental-strip-types --test lib/resolveApiBaseUrl.test.ts app/reviewerFlowSmoke.test.ts",
     "test:e2e": "playwright test",
-    "test:e2e:ci": "playwright test --reporter=dot"
+    "test:e2e:ci": "playwright test --reporter=dot",
+    "portfolio:assets": "node scripts/capture-portfolio-assets.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

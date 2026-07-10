@@ -42,6 +42,7 @@ from app.models import (
     ProductEvent,
     Subscription,
     SupportTicket,
+    Tool,
     User,
 )
 
@@ -174,6 +175,7 @@ MODEL_ORDER: Final[tuple[type, ...]] = (
     Account,
     AgentVersion,
     Agent,
+    Tool,
 )
 
 
@@ -195,6 +197,7 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
     if existing_account is not None:
         ingest_builtin_knowledge_documents(session, force=False)
         _seed_control_plane_agent(session)
+        _seed_phase6_agent_version(session)
         _seed_eval_studio_assets(session)
         session.commit()
         return None
@@ -220,6 +223,8 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
 
 
 def insert_seed_data(session: Session) -> SeedResult:
+    from app.tools.service import register_builtin_tools
+
     accounts = build_accounts()
     users = build_users()
     subscriptions = build_subscriptions()
@@ -240,7 +245,9 @@ def insert_seed_data(session: Session) -> SeedResult:
     session.flush()
     ingest_builtin_knowledge_documents(session, commit=False)
     _seed_control_plane_agent(session)
+    _seed_phase6_agent_version(session)
     _seed_eval_studio_assets(session)
+    register_builtin_tools(session, commit=False)
     session.flush()
 
     counts = seed_counts(session)
@@ -717,8 +724,7 @@ def build_eval_cases() -> list[EvalCase]:
 
 
 def _seed_control_plane_agent(session: Session) -> None:
-    from app.agent.tools import TOOL_IDS
-    from app.llm.prompts import INVESTIGATION_SYSTEM_PROMPT
+    from app.agents.service import DEFAULT_ENABLED_TOOL_IDS
     from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
 
     agent_id = "revenue-ops-agent"
@@ -764,7 +770,7 @@ def _seed_control_plane_agent(session: Session) -> None:
             model=agent.default_model,
             temperature=0.1,
             max_tokens=1024,
-            enabled_tool_ids=list(TOOL_IDS),
+            enabled_tool_ids=list(DEFAULT_ENABLED_TOOL_IDS),
             allowed_scopes=list(DEFAULT_V1_ALLOWED_SCOPES),
             published_at=now,
             published_by="bootstrap",
@@ -775,33 +781,22 @@ def _seed_control_plane_agent(session: Session) -> None:
         session.add(v1)
         agent.updated_at = now
     else:
-        existing_v1.status = "published"
-        if existing_v1.published_at is None:
-            existing_v1.published_at = now
-        if existing_v1.enabled_tool_ids is None or len(existing_v1.enabled_tool_ids) == 0:
-            existing_v1.enabled_tool_ids = list(TOOL_IDS)
-        if not existing_v1.allowed_scopes:
-            # Backfill scopes on databases seeded before Phase 3 scope
-            # enforcement, so v1's data tools remain callable (PRD §9.5).
-            existing_v1.allowed_scopes = list(DEFAULT_V1_ALLOWED_SCOPES)
-        if existing_v1.model is None or len(existing_v1.model) == 0:
-            existing_v1.model = agent.default_model
-        if existing_v1.temperature is None:
-            existing_v1.temperature = 0.1
-        if existing_v1.max_tokens is None:
-            existing_v1.max_tokens = 1024
-        if existing_v1.system_prompt == INVESTIGATION_SYSTEM_PROMPT:
-            existing_v1.system_prompt = ""
-        existing_v1.updated_at = now
-        agent.updated_at = now
+        # Never rewrite an existing version row. Published versions are immutable
+        # execution snapshots; even a seed-owned id may already be referenced by
+        # historical runs. Capability expansion belongs in a new version.
+        return
 
     _backfill_agent_run_versions(session, agent_id, version_id)
 
 
 def _seed_eval_studio_assets(session: Session) -> None:
     """Idempotently seed the default dataset and a reproducibly degraded version."""
-    from app.agent.tools import TOOL_IDS
-    from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
+    from app.agents.service import (
+        PHASE6_AGENT_VERSION_ID,
+        PHASE6_DEGRADED_AGENT_VERSION_ID,
+        PHASE6_ENABLED_TOOL_IDS,
+    )
+    from app.tools.scopes import PHASE6_ALLOWED_SCOPES
 
     now = datetime.now(UTC).replace(tzinfo=None)
     dataset = session.get(EvalDataset, "mrr-drop-suite")
@@ -834,31 +829,91 @@ def _seed_eval_studio_assets(session: Session) -> None:
         if case_id not in linked_case_ids
     )
 
-    degraded_id = "revenue-ops-agent_degraded"
+    degraded_id = PHASE6_DEGRADED_AGENT_VERSION_ID
     if session.get(AgentVersion, degraded_id) is None:
-        enabled_tool_ids = [tool_id for tool_id in TOOL_IDS if tool_id != "search_docs"]
+        source = session.get(AgentVersion, PHASE6_AGENT_VERSION_ID) or session.get(
+            AgentVersion, "revenue-ops-agent_v1"
+        )
+        if source is None:
+            return
+        enabled_tool_ids = [
+            tool_id for tool_id in PHASE6_ENABLED_TOOL_IDS if tool_id != "search_docs"
+        ]
+        minimum_version_number = int(
+            session.scalar(
+                select(func.coalesce(func.min(AgentVersion.version_number), 0)).where(
+                    AgentVersion.agent_id == source.agent_id
+                )
+            )
+            or 0
+        )
         session.add(
             AgentVersion(
                 id=degraded_id,
-                agent_id="revenue-ops-agent",
-                # Keep v1 as the default published version while still exposing
-                # this published variant as an explicit comparison target.
-                version_number=0,
-                semantic_version="0.9.0-degraded",
+                agent_id=source.agent_id,
+                # A negative version keeps the intentionally degraded candidate
+                # out of default-version selection on fresh and upgraded data.
+                version_number=min(minimum_version_number, 0) - 1,
+                semantic_version="0.8.0-phase6-degraded",
                 status="published",
-                system_prompt="",
-                model="gpt-4o-mini",
-                temperature=0.1,
-                max_tokens=1024,
+                system_prompt=source.system_prompt,
+                model=source.model,
+                temperature=source.temperature,
+                max_tokens=source.max_tokens,
                 enabled_tool_ids=enabled_tool_ids,
-                allowed_scopes=list(DEFAULT_V1_ALLOWED_SCOPES),
+                allowed_scopes=list(PHASE6_ALLOWED_SCOPES),
                 published_at=now,
                 published_by="bootstrap",
-                forked_from_version_id="revenue-ops-agent_v1",
+                forked_from_version_id=source.id,
                 created_at=now,
                 updated_at=now,
             )
         )
+
+
+def _seed_phase6_agent_version(session: Session) -> None:
+    """Ensure fresh or explicit reset seeds reproduce migration 0015's snapshot."""
+    from app.agents.service import PHASE6_AGENT_VERSION_ID, PHASE6_ENABLED_TOOL_IDS
+    from app.tools.scopes import PHASE6_ALLOWED_SCOPES
+
+    session.flush()
+    version_id = PHASE6_AGENT_VERSION_ID
+    if session.get(AgentVersion, version_id) is not None:
+        return
+    source = session.get(AgentVersion, "revenue-ops-agent_v1")
+    if source is None:
+        return
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    next_version_number = int(
+        session.scalar(
+            select(func.coalesce(func.max(AgentVersion.version_number), 0)).where(
+                AgentVersion.agent_id == source.agent_id
+            )
+        )
+        or 0
+    ) + 1
+    session.add(
+        AgentVersion(
+            id=version_id,
+            agent_id=source.agent_id,
+            version_number=next_version_number,
+            semantic_version=f"{next_version_number}.0.0",
+            status="published",
+            system_prompt=source.system_prompt,
+            model=source.model,
+            temperature=source.temperature,
+            max_tokens=source.max_tokens,
+            enabled_tool_ids=list(PHASE6_ENABLED_TOOL_IDS),
+            allowed_scopes=list(PHASE6_ALLOWED_SCOPES),
+            published_at=now,
+            published_by="bootstrap:phase6",
+            forked_from_version_id=source.id,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.flush()
 
 
 def _backfill_agent_run_versions(
@@ -1141,6 +1196,7 @@ def seed_counts(session: Session) -> dict[str, int]:
         "knowledge_document_chunks": KnowledgeDocumentChunk,
         "agents": Agent,
         "agent_versions": AgentVersion,
+        "tools": Tool,
     }
     return {
         table_name: session.scalar(select(func.count()).select_from(model)) or 0

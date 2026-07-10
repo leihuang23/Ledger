@@ -51,6 +51,7 @@ PAYLOAD_CONTRACTS = {
 
 
 def create_mock_action(session: Session, payload: MockActionCreate) -> MockActionRead:
+    """Legacy operator API: create a mock action and gate high-risk actions."""
     run = session.get(AgentRun, payload.run_id)
     if run is None:
         raise LookupError(f"Unknown agent run id: {payload.run_id}")
@@ -58,6 +59,28 @@ def create_mock_action(session: Session, payload: MockActionCreate) -> MockActio
     action = _create_mock_action_record(session, payload, actor=ACTION_ACTOR)
     session.commit()
     return get_mock_action(session, action.id)
+
+
+def create_low_risk_mock_action(
+    session: Session, payload: MockActionCreate
+) -> MockActionRead:
+    """Registered write tool that cannot create approval requests."""
+    if classify_action_risk(payload.action_type) == "high":
+        raise ValueError(
+            f"{payload.action_type} requires the request_approval tool"
+        )
+    return create_mock_action(session, payload)
+
+
+def request_high_risk_approval(
+    session: Session, payload: MockActionCreate
+) -> MockActionRead:
+    """Registered approval tool that accepts only high-risk action drafts."""
+    if classify_action_risk(payload.action_type) != "high":
+        raise ValueError(
+            f"{payload.action_type} does not require an approval request"
+        )
+    return create_mock_action(session, payload)
 
 
 def _create_mock_action_record(
@@ -131,13 +154,29 @@ def _create_mock_action_record(
 
 
 def propose_actions_for_report(
-    session: Session, *, run_id: str, report: InvestigationReport
+    session: Session,
+    *,
+    run_id: str,
+    report: InvestigationReport,
+    allow_approval_requests: bool = True,
+    action_types: set[str] | frozenset[str] | None = None,
 ) -> list[MockActionRead]:
     existing_actions = session.scalars(
         select(MockAction).where(MockAction.run_id == run_id)
     ).all()
     existing_action_types = {action.action_type for action in existing_actions}
-    if set(REPORT_ACTION_TYPES).issubset(existing_action_types):
+    requested_action_types = set(action_types or REPORT_ACTION_TYPES)
+    unknown_action_types = requested_action_types - set(REPORT_ACTION_TYPES)
+    if unknown_action_types:
+        raise ValueError(
+            "Unknown report action types: " + ", ".join(sorted(unknown_action_types))
+        )
+    expected_action_types = {
+        action_type
+        for action_type in requested_action_types
+        if allow_approval_requests or action_type not in HIGH_RISK_ACTION_TYPES
+    }
+    if expected_action_types.issubset(existing_action_types):
         return list_mock_actions_for_run(session, run_id)
 
     affected_account_ids = [account.account_id for account in report.affected_accounts]
@@ -209,6 +248,13 @@ def propose_actions_for_report(
     ]
 
     for payload in action_payloads:
+        if payload.action_type not in expected_action_types:
+            continue
+        if (
+            not allow_approval_requests
+            and payload.action_type in HIGH_RISK_ACTION_TYPES
+        ):
+            continue
         if payload.action_type not in existing_action_types:
             _create_mock_action_record(session, payload, actor=ACTION_ACTOR)
             existing_action_types.add(payload.action_type)

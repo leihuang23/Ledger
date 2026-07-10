@@ -592,6 +592,20 @@ class Agent(Base):
     runs: Mapped[list[AgentRun]] = relationship(back_populates="agent")
 
 
+class Tool(Base):
+    __tablename__ = "tools"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    input_schema: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    output_schema: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    permission_scope: Mapped[str] = mapped_column(
+        String(32), nullable=False, index=True
+    )
+    implementation_ref: Mapped[str] = mapped_column(String(240), nullable=False)
+
+
 class AgentVersion(Base):
     __tablename__ = "agent_versions"
     __table_args__ = (

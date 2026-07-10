@@ -23,6 +23,7 @@ from app.logging_config import configure_logging, get_logger, request_id_context
 from app.metrics.router import router as metrics_router
 from app.runs.router import router as runs_router
 from app.support.router import router as support_router
+from app.tools.router import router as tools_router
 
 logger = get_logger("app.main")
 
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(agent_router)
     app.include_router(agents_router)
+    app.include_router(tools_router)
     app.include_router(dashboard_router)
     app.include_router(mock_actions_router)
     app.include_router(approvals_router)

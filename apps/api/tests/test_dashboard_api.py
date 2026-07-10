@@ -242,6 +242,7 @@ def test_dashboard_p95_latency_under_500ms_for_10k_runs(
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     assert response.status_code == 200
+    print(f"phase6_dashboard_10k_latency_ms={elapsed_ms:.1f}")
     assert elapsed_ms < 500.0, f"dashboard p95 latency {elapsed_ms:.1f}ms > 500ms"
 
 

@@ -1,12 +1,75 @@
 # Ops Agent
 
-Ops Agent is a production-shaped SaaS revenue and support investigation workspace. The final product will help an operator answer a prompt like: "MRR dropped this week. Investigate the cause, identify affected accounts, cite evidence, recommend actions, and draft follow-ups."
+Ops Agent is a production-shaped SaaS revenue investigation agent and the control plane used to operate it. It answers prompts such as “MRR dropped this week” by gathering SQL, support, product, incident, and knowledge-base evidence before it names a root cause or proposes an action.
 
-The product is intentionally not a toy chatbot. Its core promise is an auditable agent loop that combines revenue analytics, product usage, support tickets, knowledge documents, controlled action drafts, approval gates, run traces, and evals. Every important claim should be backed by cited evidence from queried data or retrieved documents.
+The repository tells two connected portfolio stories:
 
-Use this README as a runbook for local setup and inspection. Do not treat it as the implementation source of truth. The product source of truth is `prd.md`; the implementation source of truth is the code, migrations, API docs, and tests.
+- **Project 1 — Revenue Ops Agent:** anomaly detection, evidence retrieval, cited reports, approval-gated mock actions, traces, and deterministic evals.
+- **Project 2 — Agent Control Plane:** immutable agent versions, a governed tool registry, launchable runs, cost/latency observability, a global approval queue, and A-vs-B regression evaluation.
 
-The project should be considered ready for review only when the verification commands below pass and the inspection checklist produces evidence-backed answers.
+The product is intentionally not a toy chatbot. Every important claim is expected to link back to retrieved evidence, every tool call is permission-checked, and every risky action remains a mock until an operator decides it.
+
+[Watch the recorded walkthrough](docs/assets/ops-agent-walkthrough.webm) or follow the [narrated demo script](docs/demo-script.md).
+
+## The Problem
+
+A fluent incident summary is easy to demo and hard to trust. Production teams need to know which evidence an agent retrieved, which version and tools it used, what failed, how much the run cost, whether a change regressed quality, and whether a proposed action crossed an approval boundary.
+
+Ops Agent makes those questions inspectable from the UI and reconstructable from the database. Deterministic analytics and retrieval produce the evidence; the LLM layer, when enabled, synthesizes it through a structured schema. The same seeded cases then become regression tests for agent quality and safety.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    operator["Operator / evaluator"] --> web["Next.js operations workspace"]
+    web --> api["FastAPI control plane"]
+    api --> registry["Agents, versions, tools, scopes"]
+    api --> queue["Redis + Celery"]
+    queue --> graph["Fixed LangGraph investigation DAG"]
+    graph --> evidence["SQL metrics · tickets · product events · pgvector docs"]
+    graph --> safety["Tool policy + approval gate"]
+    graph --> traces["Local / Langfuse / LangSmith traces"]
+    registry --> postgres[("Postgres + pgvector")]
+    evidence --> postgres
+    safety --> postgres
+    traces --> postgres
+    api --> evals["Versioned eval datasets and A/B comparison"]
+    evals --> queue
+```
+
+The fixed investigation graph keeps execution auditable. Published agent versions snapshot their prompt, model, enabled tools, and allowed scopes. Every run persists its input, ordered steps, blocked calls, trace reference, model usage, final report, mock actions, approval decisions, and eval results.
+
+Phase 6 introduces action and eval permissions as a new published `revenue-ops-agent_phase6` snapshot. Upgrades never widen an existing published row, so historical run/version references remain reproducible.
+
+### What to inspect first
+
+| Question | Surface |
+| --- | --- |
+| What changed in the business? | Revenue dashboard and incident evidence |
+| Why should I trust the diagnosis? | Run report, citations, step timeline, and trace |
+| What can this version do? | Agent version and tool registry |
+| Can it act without approval? | Tool scopes, mock actions, and approval queue |
+| Did a new version regress? | Eval Studio A-vs-B comparison |
+| What does it cost and how long does it take? | Observability dashboard |
+
+## Product Tour
+
+![Control-plane observability dashboard](docs/assets/control-plane-dashboard.png)
+
+![Evaluation Studio regression comparison](docs/assets/eval-regression.png)
+
+The screenshots are generated from the seeded local stack with `npm run portfolio:assets`; no customer data is used.
+
+## Five-Minute Demo
+
+1. Open **Agents**, inspect the published Revenue Ops Agent, and review its immutable tool/scopes snapshot.
+2. Open **Tools** to verify schemas, permission scopes, and implementation bindings are explicit.
+3. Launch the published version against the seeded MRR-drop incident and inspect the ordered run timeline, citations, trace, token usage, and estimated cost.
+4. Open **Approvals** and verify that the high-risk customer follow-up is pending until it is approved or rejected.
+5. Open **Eval Studio**, compare the good version with the intentionally degraded version, and inspect the case that flips from pass to fail.
+6. Open **Observability** to compare success rate, average/p95 latency, and estimated cost per version.
+
+The exact narration, expected evidence, and recovery steps are in [docs/demo-script.md](docs/demo-script.md).
 
 ## Product Direction
 
@@ -33,9 +96,12 @@ Do not advance a readiness label by editing this file. Advance it by adding impl
 
 ## Structure
 
-- `apps/api` - FastAPI app with Pydantic v2 settings, SQLAlchemy 2 engine/session setup, Alembic migrations, seeded SaaS data, domain routers (metrics, accounts, support, incidents, agent, approvals, evals, knowledge, health), Celery task workers for investigations and evals, and pytest coverage.
-- `apps/web` - Next.js App Router UI for the operational dashboard, incident detail, agent run timeline, approvals queue, accounts list/detail, support tickets, knowledge search, and eval report.
+- `apps/api` - FastAPI, Pydantic, SQLAlchemy/Alembic, Postgres/pgvector, governed agent/tool/run domains, Celery workers, tracing, evals, and behavior tests.
+- `apps/web` - Next.js App Router UI for incidents, agents, tools, runs, approvals, observability, knowledge, and versioned eval comparison.
 - `docker-compose.yml` - Local Postgres (pgvector), Redis, API, Celery worker, and web services with health checks.
+- `render.yaml` - Render Blueprint for the API, worker, Postgres, and Key Value services.
+- `apps/web/vercel.json` - Vercel project configuration for the Next.js frontend.
+- `docs` - deployment, security, demo, verification, and portfolio evidence.
 - `prd.md` - Product brief and success criteria.
 - `AGENTS.md` - Project guardrails for future agent work.
 
@@ -65,6 +131,10 @@ Useful URLs:
 - Backend readiness: http://localhost:8000/ready
 - API docs: http://localhost:8000/docs
 - Frontend: http://localhost:3000
+- Agent registry: http://localhost:3000/agents
+- Tool registry: http://localhost:3000/tools
+- Control-plane runs: http://localhost:3000/runs
+- Observability: http://localhost:3000/dashboard
 - Incidents: http://localhost:3000/incidents
 - Accounts: http://localhost:3000/accounts
 - Support tickets: http://localhost:3000/support/tickets
@@ -209,7 +279,7 @@ When an external provider is missing, disabled, or fails to start, agent runs
 fall back to local traces and persist metadata explaining the requested provider
 and fallback reason.
 
-## Eval Suite
+## Eval Methodology
 
 The eval suite runs the investigation workflow against six seeded incident
 scenarios:
@@ -259,7 +329,7 @@ scenario results, failures, trace links, and example outputs.
 
 Known failures and limitations:
 
-- Current seeded run result: all six eval scenarios pass in the local deterministic suite.
+- July 10 release verification: the immutable Phase 6 CLI baseline passed 6/6 deterministic cases. A separately published Phase 6 document-search-disabled candidate passed 5/6 (still above the 4/5 product gate) and exposed the expected version regression.
 - Without Langfuse or LangSmith credentials, traces are local identifiers rather than hosted trace pages.
 - Without `LANGFUSE_PROJECT_ID`, Langfuse runs persist a `langfuse://traces/<trace_id>` identifier instead of a clickable UI URL.
 - Hosted traces redact raw evidence payloads by default; enable `OBSERVABILITY_FULL_PAYLOADS=true` only when the seeded synthetic data export is intentional.
@@ -269,6 +339,41 @@ Known failures and limitations:
 Postgres must have pgvector available because Alembic creates a `vector(96)`
 embedding column and HNSW cosine index. Docker Compose uses the
 `pgvector/pgvector:pg16` image for this.
+
+## Security Model
+
+The demo environment uses token gates rather than production identity. Public web deployments are read-only by default; server actions require `OPERATOR_UI_ENABLED=true` in addition to the API tokens. Mutations fail closed when `APP_ENV=demo` and the corresponding token is unset. Tokens are server-only variables; none use the `NEXT_PUBLIC_` prefix.
+
+| OWASP LLM risk | Control in this repository |
+| --- | --- |
+| Prompt injection | Fixed graph, typed inputs/outputs, explicit tool bindings, and no arbitrary code/tool discovery |
+| Sensitive information disclosure | Synthetic data, server-only secrets, structured logging, and hosted trace payloads redacted by default |
+| Improper output handling | Pydantic report validation, React escaping, and mock-only external actions |
+| Excessive agency | Version-scoped tool permissions plus approval gates for high-risk actions |
+| Vector/embedding weaknesses | Bounded built-in corpus, citation metadata, deterministic local embeddings, and no anonymous ingestion |
+| Misinformation | Evidence citations, ambiguity cases, deterministic evals, and explicit uncertainty paths |
+| Unbounded consumption | Rate limits, model token/time bounds, Celery time limits, and a separate eval-run token |
+
+See [docs/security.md](docs/security.md) for trust boundaries, residual risks, and deployment checks.
+
+## Limitations
+
+- Token gates are suitable for a portfolio demo, not multi-user authentication, RBAC, or tenant isolation.
+- All business records are deterministic synthetic data; there are no real SaaS, CRM, email, or payment integrations.
+- External actions remain mocks. Approval demonstrates the state machine and audit boundary, not message delivery.
+- The Revenue Ops workflow is a fixed linear DAG; the control plane versions configuration, not graph topology.
+- Eval scoring uses exact deterministic root-cause signatures rather than an LLM judge or semantic equivalence.
+- Hosted tracing is optional; without credentials, every run still has a local trace identifier but not a hosted trace page.
+- The provided Render topology includes a continuously running worker and managed data services, so review current provider pricing before deploying it.
+
+## Future Work
+
+- Add real operator authentication, role-based access, tenant isolation, and secret rotation.
+- Add a semantic rubric layer alongside deterministic eval scoring and run it against larger adversarial datasets.
+- Add prompt-injection/red-team cases for retrieved documents and tool outputs.
+- Add alerting for cost, latency, stuck runs, approval backlog, and eval regressions.
+- Add a durable scheduler and retry policy for production workloads.
+- Replace mock integrations only after per-integration authorization and idempotency contracts are defined.
 
 ## Frontend Development
 
@@ -297,7 +402,9 @@ cd apps/api
 .venv/bin/python -m pytest
 ```
 
-The backend suite currently contains ~163 behavior and contract tests.
+The backend suite covers Project 1 and Project 2 behavior, API contracts,
+migrations, safety boundaries, evals, and deployment invariants. Use the fresh
+pytest summary rather than a README count as the source of truth.
 
 Run the frontend contract/type/build checks:
 
@@ -308,7 +415,9 @@ npm run lint
 npm run build
 ```
 
-The frontend unit/contract suite currently contains 8 tests.
+The frontend unit/contract suite is intentionally small; Playwright carries the
+cross-surface product flows. Use the fresh command summaries rather than a
+hard-coded README count as the source of truth.
 
 Run the Playwright E2E test against a started Docker stack:
 

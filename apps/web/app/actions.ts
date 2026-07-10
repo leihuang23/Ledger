@@ -14,8 +14,10 @@ import {
   startInvestigation,
   updateAgentVersion,
 } from '@/lib/api';
+import { requireOperatorMutationsEnabled } from '@/lib/operatorMutations';
 
 export async function openIncidentFromAnomaly(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const anomalyId = formData.get('anomaly_id');
   if (typeof anomalyId !== 'string' || anomalyId.length === 0) {
     throw new Error('Missing anomaly id');
@@ -30,6 +32,7 @@ export async function openIncidentFromAnomaly(formData: FormData) {
 }
 
 export async function startInvestigationFromIncident(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const incidentId = readRequiredFormValue(formData, 'incident_id');
   const agentVersionId = formData.get('agent_version_id');
 
@@ -50,6 +53,7 @@ export async function startInvestigationFromIncident(formData: FormData) {
 }
 
 export async function approveApprovalFromRun(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const runId = readRequiredFormValue(formData, 'run_id');
   const surface = readRunSurface(formData);
@@ -63,6 +67,7 @@ export async function approveApprovalFromRun(formData: FormData) {
 }
 
 export async function rejectApprovalFromRun(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const runId = readRequiredFormValue(formData, 'run_id');
   const surface = readRunSurface(formData);
@@ -76,6 +81,7 @@ export async function rejectApprovalFromRun(formData: FormData) {
 }
 
 export async function approveApprovalFromQueue(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const result = await approveApprovalRequest(
     approvalId,
@@ -87,6 +93,7 @@ export async function approveApprovalFromQueue(formData: FormData) {
 }
 
 export async function rejectApprovalFromQueue(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const approvalId = readRequiredFormValue(formData, 'approval_id');
   const result = await rejectApprovalRequest(
     approvalId,
@@ -98,6 +105,7 @@ export async function rejectApprovalFromQueue(formData: FormData) {
 }
 
 export async function runEvalDatasetFromStudio(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const datasetId = readRequiredFormValue(formData, 'dataset_id');
   const agentVersionId = readRequiredFormValue(formData, 'agent_version_id');
   const params = new URLSearchParams({
@@ -124,6 +132,7 @@ export async function runEvalDatasetFromStudio(formData: FormData) {
 }
 
 export async function runEvalSuiteFromReport() {
+  requireOperatorMutationsEnabled();
   const result = await runEvalSuite();
   if (!result.ok) {
     redirect(`/evals?eval_error=${encodeURIComponent(result.error)}`);
@@ -141,6 +150,7 @@ export async function runEvalSuiteFromReport() {
 }
 
 export async function launchControlPlaneRun(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const agentVersionId = readRequiredFormValue(formData, 'agent_version_id');
   const agentId = readRequiredFormValue(formData, 'agent_id');
   const incidentId = readRequiredFormValue(formData, 'incident_id');
@@ -164,6 +174,7 @@ export async function launchControlPlaneRun(formData: FormData) {
 }
 
 export async function saveAgentVersionDraft(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const agentId = readRequiredFormValue(formData, 'agent_id');
   const versionId = formData.get('version_id');
   const baseVersionId = formData.get('base_version_id');
@@ -172,6 +183,7 @@ export async function saveAgentVersionDraft(formData: FormData) {
   const temperatureRaw = formData.get('temperature');
   const maxTokensRaw = formData.get('max_tokens');
   const toolsPresent = formData.get('enabled_tool_ids_present');
+  const scopesPresent = formData.get('allowed_scopes_present');
   const returnTo = formData.get('return_to');
 
   const returnPath =
@@ -183,6 +195,11 @@ export async function saveAgentVersionDraft(formData: FormData) {
       ? formData.getAll('enabled_tool_ids').filter((v): v is string => typeof v === 'string')
       : [];
   const shouldSetEnabledTools = toolsPresent === '1';
+  const allowedScopes: string[] =
+    scopesPresent === '1'
+      ? formData.getAll('allowed_scopes').filter((v): v is string => typeof v === 'string')
+      : [];
+  const shouldSetAllowedScopes = scopesPresent === '1';
 
   let temperature: number | undefined;
   if (typeof temperatureRaw === 'string' && temperatureRaw.length > 0) {
@@ -206,6 +223,7 @@ export async function saveAgentVersionDraft(formData: FormData) {
     temperature,
     max_tokens: maxTokens,
     enabled_tool_ids: shouldSetEnabledTools ? enabledToolIds : undefined,
+    allowed_scopes: shouldSetAllowedScopes ? allowedScopes : undefined,
   };
 
   let result;
@@ -235,6 +253,7 @@ export async function saveAgentVersionDraft(formData: FormData) {
 }
 
 export async function publishAgentVersion(formData: FormData) {
+  requireOperatorMutationsEnabled();
   const versionId = readRequiredFormValue(formData, 'version_id');
   const agentId = readRequiredFormValue(formData, 'agent_id');
 

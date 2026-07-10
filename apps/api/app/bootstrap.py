@@ -11,6 +11,7 @@ from app.agent.service import abandon_orphaned_active_runs
 from app.db.session import SessionLocal, engine
 from app.logging_config import configure_logging, get_logger
 from app.seed import ensure_seeded_if_empty
+from app.tools.service import register_builtin_tools
 
 BOOTSTRAP_LOCK_ID = 0x4F707341
 
@@ -50,6 +51,7 @@ def run_startup_bootstrap() -> None:
     with bootstrap_lock(engine):
         run_migrations()
         with SessionLocal() as session:
+            register_builtin_tools(session)
             result = ensure_seeded_if_empty(session)
             if result:
                 logger.info(

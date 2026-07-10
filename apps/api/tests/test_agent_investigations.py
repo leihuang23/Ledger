@@ -19,11 +19,14 @@ from app.agent.schemas import (
     ReportEvidence,
 )
 from app.agent.persistence import AgentRunRecorder, utcnow_naive
-from app.agents.service import DEFAULT_AGENT_ID, DEFAULT_AGENT_VERSION_ID
+from app.agents.service import (
+    DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_VERSION_ID,
+)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun, AgentRunStep, Incident
+from app.models import AgentRun, AgentRunStep, AgentVersion, Incident
 from app.seed import reseed_database
 
 
@@ -160,9 +163,63 @@ def test_investigation_run_produces_structured_evidence_backed_report(
         "fetch_account_details",
         "search_docs",
         "fetch_support_tickets",
-        "propose_actions",
+        "create_mock_action",
+        "request_approval",
     }
     assert all(step["status"] == "succeeded" for step in tool_steps)
+
+
+def test_project1_v1_preserves_legacy_actions_without_mutating_snapshot(
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id).order_by(Incident.id))
+        version = session.get(AgentVersion, DEFAULT_AGENT_VERSION_ID)
+        assert incident_id is not None
+        assert version is not None
+        original_tool_ids = list(version.enabled_tool_ids)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        response = TestClient(app).post(
+            "/agent/investigations",
+            json={
+                "incident_id": incident_id,
+                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "run_inline": True,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["agent_version_id"] == DEFAULT_AGENT_VERSION_ID
+    assert {action["action_type"] for action in payload["mock_actions"]} == {
+        "draft_slack_message",
+        "draft_customer_email",
+        "create_task",
+        "update_account_note",
+    }
+    assert sum(
+        action["approval_request"] is not None for action in payload["mock_actions"]
+    ) == 2
+
+    with session_factory() as session:
+        version = session.get(AgentVersion, DEFAULT_AGENT_VERSION_ID)
+        assert version is not None
+        assert version.enabled_tool_ids == original_tool_ids
+        assert version.enabled_tool_ids == [
+            "query_revenue_metrics",
+            "fetch_account_details",
+            "search_docs",
+            "fetch_support_tickets",
+        ]
 
 
 def test_default_investigation_launch_returns_queued_run_then_completes(
@@ -687,7 +744,7 @@ def test_investigation_fails_visibly_when_action_proposal_fails(
     assert "Action proposal failed: mock action proposal unavailable" in payload["error"]
     assert payload["mock_actions"] == []
     failed_step = next(
-        step for step in payload["steps"] if step["tool_name"] == "propose_actions"
+        step for step in payload["steps"] if step["tool_name"] == "create_mock_action"
     )
     assert failed_step["status"] == "failed"
     assert "mock action proposal unavailable" in failed_step["error"]
@@ -713,7 +770,12 @@ def test_investigation_start_reuses_existing_successful_run_by_default(
             "/agent/investigations",
             json={"incident_id": incident_id, "run_inline": True},
         )
+        initial_step_ids = [step["id"] for step in first_response.json()["steps"]]
         second_response = client.post(
+            "/agent/investigations",
+            json={"incident_id": incident_id, "run_inline": True},
+        )
+        third_response = client.post(
             "/agent/investigations",
             json={"incident_id": incident_id, "run_inline": True},
         )
@@ -722,7 +784,11 @@ def test_investigation_start_reuses_existing_successful_run_by_default(
 
     assert first_response.status_code == 201
     assert second_response.status_code == 200
+    assert third_response.status_code == 200
     assert second_response.json()["id"] == first_response.json()["id"]
+    assert third_response.json()["id"] == first_response.json()["id"]
+    assert [step["id"] for step in second_response.json()["steps"]] == initial_step_ids
+    assert [step["id"] for step in third_response.json()["steps"]] == initial_step_ids
 
 
 def test_investigation_start_backfills_actions_for_existing_successful_run(
@@ -763,7 +829,11 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
     try:
         response = client.post(
             "/agent/investigations",
-            json={"incident_id": incident_id, "run_inline": True},
+            json={
+                "incident_id": incident_id,
+                "agent_version_id": DEFAULT_AGENT_VERSION_ID,
+                "run_inline": True,
+            },
         )
     finally:
         app.dependency_overrides.clear()
@@ -777,6 +847,9 @@ def test_investigation_start_backfills_actions_for_existing_successful_run(
         "create_task",
         "update_account_note",
     }
+    assert sum(
+        action["approval_request"] is not None for action in payload["mock_actions"]
+    ) == 2
 
 
 def test_investigation_with_no_affected_accounts_finishes_with_uncertainty(

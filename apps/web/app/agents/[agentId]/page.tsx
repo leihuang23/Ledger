@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { saveAgentVersionDraft } from '@/app/actions';
+import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
 import { getAgent } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { operatorMutationsEnabled } from '@/lib/operatorMutations';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +21,7 @@ export default async function AgentDetailPage({
   params: Promise<{ agentId: string }>;
 }) {
   const { agentId } = await params;
+  const mutationsEnabled = operatorMutationsEnabled();
   const result = await getAgent(agentId);
 
   if (!result.ok) {
@@ -65,10 +68,13 @@ export default async function AgentDetailPage({
             {agent.latest_published_version ? (
               <input type="hidden" name="base_version_id" value={agent.latest_published_version.id} />
             ) : null}
-            <button className="action-button" type="submit">
+            <button className="action-button" disabled={!mutationsEnabled} type="submit">
               New draft version
             </button>
           </form>
+          {!mutationsEnabled ? (
+            <ReadOnlyOperatorNotice className="operator-read-only-note-compact" />
+          ) : null}
         </div>
       </header>
 

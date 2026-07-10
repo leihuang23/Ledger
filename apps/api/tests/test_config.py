@@ -50,3 +50,25 @@ def test_settings_parse_comma_separated_cors_origins_env(monkeypatch) -> None:
         "http://localhost:3000",
         "https://ops-agent.example.test",
     ]
+
+
+def test_settings_normalize_managed_postgres_url_for_psycopg(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://ops_agent:secret@managed-db.example.test:5432/ops_agent",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == (
+        "postgresql+psycopg://ops_agent:secret@managed-db.example.test:5432/ops_agent"
+    )
+
+
+def test_settings_preserve_explicit_sqlalchemy_database_driver(monkeypatch) -> None:
+    database_url = "postgresql+psycopg://ops_agent:secret@db.example.test/ops_agent"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == database_url

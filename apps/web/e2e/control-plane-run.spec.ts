@@ -15,17 +15,19 @@ test.describe('control-plane run', () => {
     const agentLink = page.getByRole('link', { name: 'Revenue Ops Agent' }).first();
     await agentLink.click();
 
-    // Enter the latest published version (v1) from the agent's version list.
-    // The version row renders "v1" as text and an "Inspect" link into the
-    // version detail page (where the Launch form lives).
-    const versionLink = page.getByRole('link', { name: 'Inspect' }).first();
-    await versionLink.click();
+    // Pin the stable seeded baseline. Other parallel E2E scenarios publish
+    // candidates, so "first/latest Inspect" would make this test order-dependent.
+    await page.goto('/agents/revenue-ops-agent/versions/revenue-ops-agent_phase6');
 
     // The version detail page exposes the Launch form on published versions.
     const launchButton = page.getByRole('button', { name: 'Launch run' });
     await expect(launchButton).toBeVisible();
 
-    // The seeded canonical incident is the default option; submit the form.
+    // Use a scenario that is distinct from the dashboard demo flow so the two
+    // specs remain isolated when Playwright executes them in parallel.
+    await page
+      .locator('select[name="incident_id"]')
+      .selectOption('inc_eval_payment_method_expiration');
     await launchButton.click();
 
     // The server action redirects to the control-plane run detail page.
@@ -45,5 +47,12 @@ test.describe('control-plane run', () => {
     // proposed action and its evidence reviewable at the gate.
     await expect(page.getByRole('heading', { name: 'Root cause' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Cited evidence' })).toBeVisible();
+
+    const rejectButtons = page.getByRole('button', { name: 'Reject', exact: true });
+    await expect(rejectButtons).toHaveCount(2);
+    for (const remaining of [1, 0]) {
+      await rejectButtons.first().click();
+      await expect(rejectButtons).toHaveCount(remaining);
+    }
   });
 });

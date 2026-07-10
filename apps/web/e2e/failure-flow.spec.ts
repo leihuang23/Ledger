@@ -19,9 +19,14 @@ test.describe('failure flow', () => {
     // successful runs by default, so force a new run to avoid stale approval
     // state from prior specs or local smoke runs.
     const apiBaseURL = process.env.PLAYWRIGHT_API_BASE_URL || 'http://localhost:8000';
+    const operatorToken = process.env.DEMO_OPERATOR_TOKEN;
     const runResponse = await request.post(`${apiBaseURL}/agent/investigations`, {
+      headers: operatorToken
+        ? { 'X-Demo-Operator-Token': operatorToken }
+        : undefined,
       data: {
         incident_id: 'inc_eval_unknown_root_cause',
+        agent_version_id: 'revenue-ops-agent_phase6',
         run_inline: true,
         force: true,
       },
@@ -67,5 +72,13 @@ test.describe('failure flow', () => {
     await expect(rejectedAction.locator('.action-rejected')).toBeVisible();
     await expect(rejectedAction.getByRole('button', { name: 'Reject' })).toHaveCount(0);
     await expect(rejectedAction.getByRole('button', { name: 'Approve' })).toHaveCount(0);
+
+    const remainingReject = runApprovalPanel.getByRole('button', {
+      name: 'Reject',
+      exact: true,
+    });
+    await expect(remainingReject).toHaveCount(1);
+    await remainingReject.click();
+    await expect(remainingReject).toHaveCount(0);
   });
 });

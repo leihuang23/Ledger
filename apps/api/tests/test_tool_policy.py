@@ -126,11 +126,17 @@ def test_default_v1_scopes_allow_all_data_tools() -> None:
         assert reason is None, tool_id
 
 
-def test_default_v1_scopes_exclude_run_eval() -> None:
-    """v1 must not carry the run_eval scope (eval triggering is operator-gated)."""
-    from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES
+def test_phase6_scopes_include_audited_run_eval_capability() -> None:
+    """Phase 6 exposes run_eval in addition to the endpoint's operator token gate."""
+    from app.tools.scopes import DEFAULT_V1_ALLOWED_SCOPES, PHASE6_ALLOWED_SCOPES
 
     assert "run_eval" not in DEFAULT_V1_ALLOWED_SCOPES
+    assert "run_eval" in PHASE6_ALLOWED_SCOPES
+    version = _version(
+        enabled_tool_ids=["run_eval"],
+        allowed_scopes=list(PHASE6_ALLOWED_SCOPES),
+    )
+    assert can_call_tool(version, "run_eval") == (True, None)
 
 
 if __name__ == "__main__":
