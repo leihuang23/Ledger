@@ -9,6 +9,7 @@ const navItems = [
   { href: '/agents', label: 'Agents' },
   { href: '/runs', label: 'Runs' },
   { href: '/agent/runs', label: 'Agent Runs' },
+  { href: '/dashboard', label: 'Observability' },
   { href: '/approvals', label: 'Approvals' },
   { href: '/accounts', label: 'Accounts' },
   { href: '/support/tickets', label: 'Support' },

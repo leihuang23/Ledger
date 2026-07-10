@@ -52,6 +52,25 @@ class InvestigationReport(BaseModel):
     generated_at: datetime
 
 
+class ModelUsageRead(BaseModel):
+    """Per-step LLM usage (PRD §9.2 / FR-20). Mirrors the ``model_usage`` row;
+    cost is always an *estimate* and is zero on the no-LLM fallback path."""
+
+    id: str
+    run_id: str
+    step_id: str | None
+    provider: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_estimate_usd: float
+    latency_ms: int
+    used_llm: bool
+    fallback_reason: str | None = None
+    recorded_at: datetime
+
+
 class AgentRunStepRead(BaseModel):
     id: str
     run_id: str
@@ -65,6 +84,12 @@ class AgentRunStepRead(BaseModel):
     blocked_reason: str | None = None
     started_at: datetime
     completed_at: datetime | None
+    # Wall-clock duration of the step in milliseconds. ``None`` while the step is
+    # still running (no completed_at yet). Derived from started_at/completed_at
+    # so it stays correct even for old runs persisted before this field existed.
+    duration_ms: int | None = None
+    # LLM usage rows linked to this step (PRD §9.2). Empty for non-LLM steps.
+    model_usage: list[ModelUsageRead] = Field(default_factory=list)
 
 
 class AgentRunSummary(BaseModel):

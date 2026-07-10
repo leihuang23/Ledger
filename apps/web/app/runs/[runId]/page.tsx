@@ -490,41 +490,99 @@ function StepHistory({ steps }: { steps: AgentRunStep[] }) {
         <span>{formatCount(steps.length)} steps</span>
       </div>
       <div className="timeline">
-        {steps.map((step) => (
-          <article className="step-row" key={step.id}>
-            <div className="step-row-header">
-              <div>
-                <span className={`step-status step-${step.status}`}>{step.status}</span>
-                <h3>{step.tool_name ?? step.stage}</h3>
+        {steps.map((step) => {
+          const stepCost = step.model_usage.reduce(
+            (sum, usage) => sum + usage.cost_estimate_usd,
+            0,
+          );
+          const hasUsage = step.model_usage.length > 0;
+          const firstUsage = step.model_usage[0];
+          return (
+            <article className="step-row" key={step.id}>
+              <div className="step-row-header">
+                <div>
+                  <span className={`step-status step-${step.status}`}>{step.status}</span>
+                  <h3>{step.tool_name ?? step.stage}</h3>
+                </div>
+                <span>{formatDateTime(step.started_at)}</span>
               </div>
-              <span>{formatDateTime(step.started_at)}</span>
-            </div>
-            <dl className="step-meta">
-              <div>
-                <dt>Stage</dt>
-                <dd>{step.stage}</dd>
-              </div>
-              <div>
-                <dt>Tool</dt>
-                <dd>{step.tool_name ?? 'workflow node'}</dd>
-              </div>
-              <div>
-                <dt>Completed</dt>
-                <dd>{step.completed_at ? formatDateTime(step.completed_at) : 'pending'}</dd>
-              </div>
-            </dl>
-            {step.status === 'blocked' && step.blocked_reason ? (
-              <p className="error-detail">
-                Blocked: {step.blocked_reason.replaceAll('_', ' ')}
-              </p>
-            ) : null}
-            {step.error ? <p className="error-detail">{step.error}</p> : null}
-            <details>
-              <summary>Inputs and outputs</summary>
-              <pre>{formatPayload({ inputs: step.inputs, outputs: step.outputs })}</pre>
-            </details>
-          </article>
-        ))}
+              <dl className="step-meta">
+                <div>
+                  <dt>Stage</dt>
+                  <dd>{step.stage}</dd>
+                </div>
+                <div>
+                  <dt>Tool</dt>
+                  <dd>{step.tool_name ?? 'workflow node'}</dd>
+                </div>
+                <div>
+                  <dt>Completed</dt>
+                  <dd>{step.completed_at ? formatDateTime(step.completed_at) : 'pending'}</dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>
+                    {step.duration_ms !== null
+                      ? `${formatCount(step.duration_ms)} ms`
+                      : 'pending'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Cost (est.)</dt>
+                  <dd>
+                    {hasUsage ? formatUsd(stepCost) : '—'}
+                  </dd>
+                </div>
+              </dl>
+              {hasUsage && firstUsage ? (
+                <dl className="step-meta">
+                  <div>
+                    <dt>Model</dt>
+                    <dd>
+                      <code>{firstUsage.model}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Provider</dt>
+                    <dd>{firstUsage.provider}</dd>
+                  </div>
+                  <div>
+                    <dt>Tokens</dt>
+                    <dd>
+                      {formatCount(firstUsage.total_tokens)}{' '}
+                      <span className="token-breakdown">
+                        ({formatCount(firstUsage.prompt_tokens)} prompt /{' '}
+                        {formatCount(firstUsage.completion_tokens)} completion)
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>LLM status</dt>
+                    <dd>
+                      {firstUsage.used_llm ? 'used LLM' : 'fallback'}
+                      {firstUsage.fallback_reason ? (
+                        <span className="token-breakdown">
+                          {' '}
+                          ({firstUsage.fallback_reason.replaceAll('_', ' ')})
+                        </span>
+                      ) : null}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+              {step.status === 'blocked' && step.blocked_reason ? (
+                <p className="error-detail">
+                  Blocked: {step.blocked_reason.replaceAll('_', ' ')}
+                </p>
+              ) : null}
+              {step.error ? <p className="error-detail">{step.error}</p> : null}
+              <details>
+                <summary>Inputs and outputs</summary>
+                <pre>{formatPayload({ inputs: step.inputs, outputs: step.outputs })}</pre>
+              </details>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

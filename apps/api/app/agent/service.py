@@ -17,6 +17,7 @@ from app.agent.schemas import (
     AgentRunStepRead,
     AgentRunSummary,
     InvestigationReport,
+    ModelUsageRead,
 )
 from app.agent.tracing import AgentTraceHandle, start_agent_trace
 from app.agent.workflow import run_investigation_workflow
@@ -29,7 +30,7 @@ from app.cache import Cache
 from app.db.session import SessionLocal
 from app.llm import build_llm_client_for_version
 from app.logging_config import get_logger
-from app.models import AgentRun, AgentRunStep, AgentVersion, Incident
+from app.models import AgentRun, AgentRunStep, AgentVersion, Incident, ModelUsage
 from app.tools.policy import can_call_tool
 from app.tools.scopes import TOOL_SCOPES
 
@@ -682,6 +683,16 @@ def invalidate_run_detail_cache(run_id: str) -> None:
     _invalidate_run_detail_cache(run_id)
 
 
+def _step_duration_ms(step: AgentRunStep) -> int | None:
+    """Wall-clock duration of a step in milliseconds. ``None`` while the step is
+    still running (no ``completed_at``). Derived from the persisted timestamps
+    so it stays correct for old runs and does not require a stored column."""
+    if step.started_at is None or step.completed_at is None:
+        return None
+    delta = step.completed_at - step.started_at
+    return int(delta.total_seconds() * 1000)
+
+
 def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
     cache = Cache()
     cache_key = _run_detail_cache_key(run_id)
@@ -729,6 +740,35 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
         .order_by(AgentRunStep.sequence)
     ).all()
 
+    # Load all ModelUsage rows for the run once and group by step_id so each
+    # step carries its own usage slice without an N+1 per step (PRD §9.2 / FR-20).
+    usages = session.scalars(
+        select(ModelUsage)
+        .where(ModelUsage.run_id == run.id)
+        .order_by(ModelUsage.recorded_at)
+    ).all()
+    usage_by_step: dict[str, list[ModelUsageRead]] = {}
+    for usage in usages:
+        if usage.step_id is None:
+            continue
+        usage_by_step.setdefault(usage.step_id, []).append(
+            ModelUsageRead(
+                id=usage.id,
+                run_id=usage.run_id,
+                step_id=usage.step_id,
+                provider=usage.provider,
+                model=usage.model,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+                cost_estimate_usd=usage.cost_estimate_usd,
+                latency_ms=usage.latency_ms,
+                used_llm=usage.used_llm,
+                fallback_reason=usage.fallback_reason,
+                recorded_at=usage.recorded_at,
+            )
+        )
+
     detail = AgentRunDetail(
         id=run.id,
         incident_id=run.incident_id,
@@ -769,6 +809,8 @@ def get_run_detail(session: Session, run_id: str) -> AgentRunDetail:
                 blocked_reason=step.blocked_reason,
                 started_at=step.started_at,
                 completed_at=step.completed_at,
+                duration_ms=_step_duration_ms(step),
+                model_usage=usage_by_step.get(step.id, []),
             )
             for step in steps
         ],

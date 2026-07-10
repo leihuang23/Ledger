@@ -288,6 +288,9 @@ class AgentRun(Base):
     steps: Mapped[list[AgentRunStep]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="AgentRunStep.sequence"
     )
+    model_usage: Mapped[list[ModelUsage]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="ModelUsage.recorded_at"
+    )
     mock_actions: Mapped[list[MockAction]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="MockAction.created_at"
     )
@@ -329,8 +332,47 @@ class AgentRunStep(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # Back-reference to the persisted model-usage row for this step (PRD §9.2).
+    # Plain column, NOT a foreign key, to avoid a circular FK with
+    # ``model_usage.step_id`` that breaks SQLite ``Base.metadata.create_all``
+    # used by the test fixtures. The recorder keeps it in sync with the
+    # ``ModelUsage.step_id`` it persists alongside this step.
+    model_usage_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     run: Mapped[AgentRun] = relationship(back_populates="steps")
+
+
+class ModelUsage(Base):
+    """Per-LLM-call token / latency / cost record (PRD §9.2, FR-20).
+
+    One row per LLM invocation. A step that drove the LLM call (today only the
+    ``synthesize report`` step) carries the back-reference
+    ``AgentRunStep.model_usage_id``; ``step_id`` here is the enforced FK so the
+    row is removed with its step. Cost is always an *estimate*
+    (``cost_estimate_usd``), never an actual charge.
+    """
+
+    __tablename__ = "model_usage"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(48), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    step_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("agent_run_steps.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_estimate_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    used_llm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fallback_reason: Mapped[str | None] = mapped_column(Text)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+    run: Mapped[AgentRun] = relationship(back_populates="model_usage")
 
 
 class MockAction(Base):
@@ -556,3 +598,5 @@ Index("ix_action_audit_events_run_created", ActionAuditEvent.run_id, ActionAudit
 Index("ix_eval_results_run_case", EvalResult.eval_run_id, EvalResult.eval_case_id)
 Index("ix_eval_results_case_created", EvalResult.eval_case_id, EvalResult.created_at)
 Index("ix_agent_versions_agent_status", AgentVersion.agent_id, AgentVersion.status)
+Index("ix_agent_runs_version_status", AgentRun.agent_version_id, AgentRun.status)
+Index("ix_agent_runs_version_created", AgentRun.agent_version_id, AgentRun.created_at)

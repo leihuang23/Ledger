@@ -427,6 +427,22 @@ export type ApprovalRequest = ApprovalRequestSummary & {
   action: MockAction;
 };
 
+export type ModelUsage = {
+  id: string;
+  run_id: string;
+  step_id: string | null;
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_estimate_usd: number;
+  latency_ms: number;
+  used_llm: boolean;
+  fallback_reason: string | null;
+  recorded_at: string;
+};
+
 export type AgentRunStep = {
   id: string;
   run_id: string;
@@ -440,6 +456,11 @@ export type AgentRunStep = {
   blocked_reason: string | null;
   started_at: string;
   completed_at: string | null;
+  // Wall-clock step duration in ms (null while running). Derived server-side
+  // from completed_at - started_at (PRD FR-18).
+  duration_ms: number | null;
+  // LLM usage rows linked to this step (PRD FR-20). Empty for non-LLM steps.
+  model_usage: ModelUsage[];
 };
 
 export type AgentRunSummary = {
@@ -511,6 +532,26 @@ export type AgentRunDetailResult =
 
 export type AgentRunListResult =
   | { ok: true; data: AgentRunSummary[] }
+  | { ok: false; error: string };
+
+export type AgentVersionObservability = {
+  agent_id: string;
+  agent_version_id: string;
+  agent_name: string;
+  semantic_version: string | null;
+  model: string;
+  total_runs: number;
+  successful_runs: number;
+  success_rate: number;
+  avg_latency_ms: number | null;
+  p95_latency_ms: number | null;
+  avg_cost_estimate_usd: number;
+  total_cost_estimate_usd: number;
+  last_run_at: string | null;
+};
+
+export type DashboardListResult =
+  | { ok: true; data: AgentVersionObservability[] }
   | { ok: false; error: string };
 
 export type EvalStatus = 'passed' | 'failed' | 'running';
@@ -1048,6 +1089,65 @@ export async function listRuns(
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Runs endpoint unavailable',
+    };
+  }
+}
+
+export async function getDashboardAgents(): Promise<DashboardListResult> {
+  try {
+    const response = await fetch(`${resolveApiBaseUrl()}/dashboard/agents`, {
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Dashboard endpoint returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionObservability[],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Dashboard endpoint unavailable',
+    };
+  }
+}
+
+export async function getDashboardAgent(agentId: string): Promise<DashboardListResult> {
+  try {
+    const response = await fetch(
+      `${resolveApiBaseUrl()}/dashboard/agents/${encodeURIComponent(agentId)}`,
+      {
+        cache: 'no-store',
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: await readErrorMessage(
+          response,
+          `Dashboard endpoint returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      data: (await response.json()) as AgentVersionObservability[],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Dashboard endpoint unavailable',
     };
   }
 }

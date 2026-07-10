@@ -297,6 +297,12 @@ def run_investigation_workflow(
         return {"support_tickets": support_tickets}
 
     def synthesize_report_node(state: InvestigationState) -> dict[str, Any]:
+        # usage_box: a closure-captured list that _synthesize_report appends the
+        # captured LLMUsage to. recorder.record reads it (as model_usage) only
+        # AFTER the action returns, so the box is populated by then. This keeps
+        # step.outputs == the report dict (eval/report consumers) and leaves the
+        # run-level token/cost writes intact (test_agent_llm_integration.py).
+        usage_box: list[LLMUsage] = []
         report = recorder.record(
             stage="synthesize report",
             inputs={
@@ -309,11 +315,13 @@ def run_investigation_workflow(
                 ],
                 "enabled_tool_ids": sorted(enabled),
             },
+            model_usage=usage_box,
             action=lambda: _synthesize_report(
                 state,
                 llm_client=llm_client or NoopLLMClient(),
                 run=recorder.run,
                 enabled_tool_ids=enabled,
+                usage_box=usage_box,
             ).model_dump(mode="json"),
         )
         return {"final_report": report}
@@ -378,6 +386,7 @@ def _synthesize_report(
     llm_client: LLMClient,
     run: AgentRun,
     enabled_tool_ids: set[str] | frozenset[str] | None = None,
+    usage_box: list[LLMUsage] | None = None,
 ) -> InvestigationReport:
     incident = state["incident"]
     revenue_metrics = state.get("revenue_metrics", {
@@ -420,6 +429,14 @@ def _synthesize_report(
         )
     else:
         run.cost_estimate_usd = 0.0
+
+    # Hand the captured LLMUsage back to the recorder via the usage_box so it
+    # gets persisted as a ModelUsage row linked to this step (PRD §9.2 / FR-20).
+    # The same object fed the run-level writes above, so per-step and run-level
+    # token counts stay consistent. Appended AFTER the run-level writes so a
+    # failure here does not corrupt the run row.
+    if usage_box is not None:
+        usage_box.append(llm_usage)
 
     tickets_by_account: dict[str, list[dict[str, Any]]] = {}
     for ticket in support_tickets.get("tickets", []):

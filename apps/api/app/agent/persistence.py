@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TypeVar
@@ -10,7 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent.tracing import AgentTraceHandle
-from app.models import AgentRun, AgentRunStep
+from app.llm import estimate_cost_usd
+from app.llm.schemas import LLMUsage
+from app.models import AgentRun, AgentRunStep, ModelUsage
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -38,7 +43,22 @@ class AgentRunRecorder:
         inputs: object,
         action: Callable[[], T],
         tool_name: str | None = None,
+        model_usage: list[LLMUsage] | None = None,
     ) -> T:
+        """Record one workflow step: run ``action`` inside a SAVEPOINT, then
+        persist its outputs and (optionally) per-step LLM usage.
+
+        ``model_usage`` is a "usage_box": a caller-declared list that the action
+        populates by appending the ``LLMUsage`` it captured (see
+        ``synthesize_report_node``). When non-None, ``_complete_step`` commits the
+        main session (so the step + run-level token/cost/trace_metadata writes
+        become durable) and then persists ``ModelUsage`` rows best-effort in an
+        ISOLATED session. This means passing ``model_usage`` has a transactional
+        side effect (a main-session commit). Only the terminal LLM-driving step
+        (``synthesize report``) should pass it: a non-terminal caller would split
+        its transaction boundary unexpectedly. Today only that node passes a
+        non-None ``model_usage``.
+        """
         step = self._start_step(stage=stage, tool_name=tool_name, inputs=inputs)
         try:
             # Wrap the action in a SAVEPOINT so that DB changes made by a
@@ -68,7 +88,13 @@ class AgentRunRecorder:
             self._fail_step(step.id, exc)
             raise
 
-        self._complete_step(step.id, output)
+        # ``model_usage`` is a "usage_box": a caller-declared list that the
+        # action populates by appending the LLMUsage it captured (see
+        # synthesize_report_node). By the time we get here the action has
+        # returned, so the box holds the usage to persist as ModelUsage rows.
+        # Kept out of ``step.outputs`` (which stays the report dict) and out of
+        # the run-level writes (which _synthesize_report still owns).
+        self._complete_step(step.id, output, model_usage=model_usage)
         return output
 
     def record_blocked(
@@ -138,17 +164,158 @@ class AgentRunRecorder:
         self._next_sequence += 1
         return sequence
 
-    def _complete_step(self, step_id: str, output: object) -> None:
+    def _complete_step(
+        self,
+        step_id: str,
+        output: object,
+        *,
+        model_usage: list[LLMUsage] | None = None,
+    ) -> None:
         now = utcnow_naive()
         step = self.session.get(AgentRunStep, step_id)
         if step is None:
             raise RuntimeError(f"Agent run step disappeared: {step_id}")
+        # Set the step's success fields FIRST, then flush. ModelUsage is
+        # supplementary observability telemetry (PRD §9.2 / FR-20): a failure
+        # there must never abort the step or the run, and must never revert the
+        # run-level token/cost/trace_metadata writes _synthesize_report set as
+        # pending. Flushing here lands those writes in the DB before any usage
+        # persistence runs, so the usage path can neither co-flush nor roll
+        # them back. Mirrors the tracing provider's swallow-errors posture.
         step.status = "succeeded"
         step.outputs = jsonable_encoder(output)
         step.completed_at = now
         self._touch_run_heartbeat()
         self.session.flush()
-        self._maybe_commit()
+        if model_usage:
+            # Persist ModelUsage rows in an ISOLATED session so a usage-write
+            # failure can never poison the main transaction. SQLite's pysqlite
+            # cannot recover from a flush IntegrityError inside a SAVEPOINT
+            # without a full session.rollback(), so a savepoint is not a
+            # cross-DB solution. _persist_model_usage_safe commits the main
+            # session first (making the step + run-level writes durable so the
+            # usage FK resolves and the audit trail survives), then writes the
+            # rows + step back-pointer in a short-lived separate session.
+            self._persist_model_usage_safe(step.id, model_usage)
+        else:
+            self._maybe_commit()
+
+    def _persist_model_usage_safe(
+        self, step_id: str, usages: list[LLMUsage]
+    ) -> None:
+        """Persist ModelUsage rows best-effort in an isolated session.
+
+        Observability telemetry must never gate or corrupt the investigation
+        outcome (PRD: the LLM synthesizes, it does not gate persistence). The
+        main session is committed first so the step row (satisfying the
+        ``model_usage.step_id`` FK) and the run-level token/cost/trace_metadata
+        writes become durable. A separate short-lived session then writes the
+        usage rows and the step back-pointer; any failure there is rolled back
+        and logged, leaving the step to stand as succeeded with no usage rows.
+        """
+        run_id = self.run.id
+        # Commit the main session: makes the step + run-level writes durable
+        # (the usage session needs the step row committed to resolve the FK)
+        # and matches the recorder's existing commit cadence (every 5 steps via
+        # _maybe_commit). The synthesize step is the final node, so this commit
+        # finalizes the run-level audit trail before the service layer's own
+        # success-state commit.
+        self.session.commit()
+        self._steps_since_commit = 0
+
+        usage_session: Session | None = None
+        try:
+            # _persist_model_usage writes the rows AND sets the step back-pointer
+            # on the usage_session's own step instance, so the link is committed
+            # atomically with the rows. We do NOT propagate the link back to the
+            # main session: it is expired after the commit above, and a pending
+            # write there could overwrite this link on a later main-session
+            # commit. The link is read back fresh by get_run_detail and direct
+            # queries.
+            #
+            # The Session/bind acquisition lives INSIDE the try: a pool-exhaustion
+            # or connection error here must be swallowed exactly like a row-write
+            # failure, because the main session has already committed the
+            # succeeded step + run-level audit trail. Letting it propagate would
+            # route to _fail_running_run and mark a fully-succeeded run failed
+            # purely because best-effort telemetry could not be opened — a direct
+            # violation of the best-effort invariant (PRD §9.2 / FR-20).
+            usage_session = Session(bind=self.session.get_bind())
+            self._persist_model_usage(
+                usage_session, run_id=run_id, step_id=step_id, usages=usages
+            )
+            usage_session.commit()
+        except Exception as exc:
+            if usage_session is not None:
+                usage_session.rollback()
+            logger.warning(
+                "model_usage persistence failed for run=%s step=%s "
+                "(attempted=%d rows); step will complete without usage rows: %r",
+                run_id,
+                step_id,
+                len(usages),
+                exc,
+            )
+        finally:
+            if usage_session is not None:
+                usage_session.close()
+
+    def _persist_model_usage(
+        self,
+        session: Session,
+        *,
+        run_id: str,
+        step_id: str,
+        usages: list[LLMUsage],
+    ) -> str | None:
+        """Persist one ``ModelUsage`` row per LLMUsage on ``session`` and link
+        the step back to the first row (PRD §9.2 / FR-20).
+
+        Cost is estimated only when the LLM was actually used; the no-LLM
+        fallback path records a zero-cost row with the fallback reason so the
+        audit trail still shows when the agent fell back to deterministic
+        diagnosis. Token totals are derived from prompt + completion, matching
+        the run-level writes (same LLMUsage feeds both). Returns the first row
+        id (or ``None`` if no usages were persisted).
+        """
+        first_id: str | None = None
+        step = session.get(AgentRunStep, step_id)
+        if step is None:
+            raise RuntimeError(f"Agent run step disappeared: {step_id}")
+        for usage in usages:
+            row_id = f"mu_{uuid4().hex[:16]}"
+            total_tokens = usage.prompt_tokens + usage.completion_tokens
+            cost_estimate_usd = (
+                estimate_cost_usd(
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    model=usage.model,
+                )
+                if usage.used_llm
+                else 0.0
+            )
+            session.add(
+                ModelUsage(
+                    id=row_id,
+                    run_id=run_id,
+                    step_id=step_id,
+                    provider=usage.provider,
+                    model=usage.model,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    total_tokens=total_tokens,
+                    cost_estimate_usd=cost_estimate_usd,
+                    latency_ms=usage.latency_ms,
+                    used_llm=usage.used_llm,
+                    fallback_reason=usage.fallback_reason,
+                    recorded_at=utcnow_naive(),
+                )
+            )
+            if first_id is None:
+                first_id = row_id
+        if first_id is not None:
+            step.model_usage_id = first_id
+        return first_id
 
     def _maybe_commit(self) -> None:
         self._steps_since_commit += 1
