@@ -33,7 +33,7 @@ def compute_pass_rate(*, passed_count: int, total_cases: int) -> float:
     """Return the pass rate as a float in [0.0, 1.0].
 
     Zero total cases yields 0.0 (avoids a ZeroDivisionError while remaining an
-    honest "no cases passed" sentinel).
+    honest "no cases to evaluate" sentinel).
     """
     if total_cases <= 0:
         return 0.0
