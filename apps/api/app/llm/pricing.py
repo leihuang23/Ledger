@@ -48,9 +48,17 @@ def estimate_cost_usd(
 ) -> float:
     pricing = get_pricing(model)
     if pricing is None:
-        logger.debug(
-            "Unknown model %r: cost estimate set to 0.0 (no pricing entry)", model
-        )
+        if prompt_tokens > 0 or completion_tokens > 0:
+            logger.warning(
+                "Unknown model %r with %s prompt / %s completion tokens: cost estimate set to 0.0 (no pricing entry)",
+                model,
+                prompt_tokens,
+                completion_tokens,
+            )
+        else:
+            logger.debug(
+                "Unknown model %r: cost estimate set to 0.0 (no pricing entry)", model
+            )
         return 0.0
     input_cost = (prompt_tokens * pricing.input_price_per_1m_tokens) / 1_000_000
     output_cost = (completion_tokens * pricing.output_price_per_1m_tokens) / 1_000_000
