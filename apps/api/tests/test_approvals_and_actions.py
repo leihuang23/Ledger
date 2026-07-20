@@ -16,8 +16,14 @@ from app.agent.schemas import (
     ReportEvidence,
 )
 from app.agents.service import DEFAULT_AGENT_ID, DEFAULT_AGENT_VERSION_ID
-from app.approvals.schemas import ApprovalDecisionCreate
-from app.approvals.service import approve_request, propose_actions_for_report, reject_request
+from app.approvals.schemas import ApprovalDecisionCreate, MockActionCreate
+from app.approvals.service import (
+    approve_request,
+    create_low_risk_mock_action,
+    propose_actions_for_report,
+    reject_request,
+    request_high_risk_approval,
+)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -43,32 +49,66 @@ def session_factory(tmp_path) -> Generator[Callable[[], Session], None, None]:
 @pytest.fixture()
 def client(
     session_factory: Callable[[], Session],
-) -> Generator[tuple[TestClient, str], None, None]:
+) -> Generator[tuple[TestClient, dict[str, str]], None, None]:
+    """Seed runs in every lifecycle state the operator action API must police.
+
+    Returns ``(client, run_ids)`` where ``run_ids`` maps a lifecycle key
+    (``queued``/``running``/``waiting``/``succeeded``/``failed``) to a run id.
+    Only the succeeded run is bound to an incident; the rest use a null
+    incident_id so the active-run partial unique index never collides."""
     with session_factory() as session:
         reseed_database(session)
         incident_id = session.scalar(select(Incident.id))
         assert incident_id is not None
         now = datetime(2026, 6, 9, 12, 30, 0)
-        run = AgentRun(
-            id="run_action_contract",
-            incident_id=incident_id,
-            agent_id=DEFAULT_AGENT_ID,
-            agent_version_id=DEFAULT_AGENT_VERSION_ID,
-            status="succeeded",
-            trace_id="local-test-trace",
-            input_payload={"incident_id": incident_id},
-            final_report=None,
-            token_estimate=1,
-            cost_estimate_usd=0.0,
-            error=None,
-            started_at=now,
-            completed_at=now,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(run)
+
+        def make_run(
+            run_id: str,
+            status: str,
+            *,
+            bound_incident_id: str | None,
+        ) -> str:
+            terminal = status in ("succeeded", "failed")
+            run = AgentRun(
+                id=run_id,
+                incident_id=bound_incident_id,
+                agent_id=DEFAULT_AGENT_ID,
+                agent_version_id=DEFAULT_AGENT_VERSION_ID,
+                status=status,
+                trace_id=f"local-trace-{run_id}",
+                input_payload=(
+                    {"incident_id": bound_incident_id}
+                    if bound_incident_id is not None
+                    else {}
+                ),
+                final_report=None,
+                token_estimate=1,
+                cost_estimate_usd=0.0,
+                error=None,
+                started_at=None if status == "queued" else now,
+                completed_at=now if terminal else None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(run)
+            return run.id
+
+        run_ids = {
+            "succeeded": make_run(
+                "run_action_terminal_ok", "succeeded", bound_incident_id=incident_id
+            ),
+            "failed": make_run(
+                "run_action_terminal_failed", "failed", bound_incident_id=None
+            ),
+            "waiting": make_run(
+                "run_action_checkpoint", "waiting_for_approval", bound_incident_id=None
+            ),
+            "running": make_run(
+                "run_action_in_flight", "running", bound_incident_id=None
+            ),
+            "queued": make_run("run_action_queued", "queued", bound_incident_id=None),
+        }
         session.commit()
-        run_id = run.id
 
     def override_get_db() -> Generator[Session, None, None]:
         with session_factory() as db:
@@ -76,15 +116,32 @@ def client(
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        yield TestClient(app), run_id
+        yield TestClient(app), run_ids
     finally:
         app.dependency_overrides.clear()
 
 
+LOW_RISK_ACTION_BODY = {
+    "action_type": "draft_slack_message",
+    "title": "Draft internal billing update",
+    "description": "Post a mock Slack draft for the billing incident channel.",
+    "target": "#billing-ops",
+    "payload": {"message": "Retry recovery is ready for approval."},
+}
+HIGH_RISK_ACTION_BODY = {
+    "action_type": "draft_customer_email",
+    "title": "Draft renewal recovery email",
+    "description": "Prepare customer-facing follow-up for failed renewals.",
+    "target": "affected billing contacts",
+    "payload": {"subject": "Renewal retry update", "body": "We found the issue."},
+}
+
+
 def test_low_risk_draft_action_executes_and_is_audited(
-    client: tuple[TestClient, str],
+    client: tuple[TestClient, dict[str, str]],
 ) -> None:
-    test_client, run_id = client
+    test_client, run_ids = client
+    run_id = run_ids["succeeded"]
 
     response = test_client.post(
         "/mock-actions",
@@ -120,9 +177,10 @@ def test_low_risk_draft_action_executes_and_is_audited(
 
 
 def test_high_risk_action_is_blocked_until_approved(
-    client: tuple[TestClient, str],
+    client: tuple[TestClient, dict[str, str]],
 ) -> None:
-    test_client, run_id = client
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
 
     response = test_client.post(
         "/mock-actions",
@@ -175,7 +233,8 @@ def test_approval_queue_defaults_to_pending_fr12(
     Creates two high-risk actions, approves one, then asserts the default list
     excludes the decided one while ``include_decided`` and ``status=approved``
     surface it."""
-    test_client, run_id = client
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
 
     def _create_high_risk() -> str:
         response = test_client.post(
@@ -229,8 +288,13 @@ def test_approve_after_reject_returns_409_at_http_level(
     (``test_concurrent_approve_after_reject_is_blocked``) covers the ValueError;
     this pins the router's ``ValueError -> 409`` mapping so a regression that
     swallows the conflict (e.g. returning 200 or 500) is caught. Covers both
-    directions: approve-after-reject and reject-after-approve."""
-    test_client, run_id = client
+    directions: approve-after-reject and reject-after-approve.
+
+    The run is parked at the approval checkpoint, and a keep-alive pending
+    approval stays undecided so the run does not resume (terminal runs reject
+    new high-risk actions) mid-test."""
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
 
     def _create_high_risk() -> str:
         response = test_client.post(
@@ -246,6 +310,11 @@ def test_approve_after_reject_returns_409_at_http_level(
         )
         assert response.status_code == 201
         return response.json()["approval_request"]["id"]
+
+    # Keep one approval pending for the whole test so the checkpointed run
+    # never resumes to a terminal state (which would reject further high-risk
+    # action creation with 409 and break the scenario).
+    _keep_alive_id = _create_high_risk()
 
     # Approve-after-reject -> 409.
     rejected_id = _create_high_risk()
@@ -277,9 +346,10 @@ def test_approve_after_reject_returns_409_at_http_level(
 
 
 def test_mock_action_payload_rejects_unsupported_fields(
-    client: tuple[TestClient, str],
+    client: tuple[TestClient, dict[str, str]],
 ) -> None:
-    test_client, run_id = client
+    test_client, run_ids = client
+    run_id = run_ids["succeeded"]
 
     response = test_client.post(
         "/mock-actions",
@@ -300,10 +370,100 @@ def test_mock_action_payload_rejects_unsupported_fields(
     assert "unsupported fields: send_now" in response.json()["detail"]
 
 
-def test_approving_high_risk_action_executes_and_records_decision(
-    client: tuple[TestClient, str],
+def test_operator_cannot_inject_actions_into_in_flight_runs(
+    client: tuple[TestClient, dict[str, str]],
 ) -> None:
-    test_client, run_id = client
+    """Audit hardening: POST /mock-actions rejects any action against a queued
+    or running run with 409. While a run is in flight the agent owns action
+    creation; an injected high-risk action would inflate finalization's
+    ``pending_approval_count`` and drag the run into ``waiting_for_approval``."""
+    test_client, run_ids = client
+
+    for key in ("queued", "running"):
+        run_id = run_ids[key]
+        for body in (LOW_RISK_ACTION_BODY, HIGH_RISK_ACTION_BODY):
+            response = test_client.post(
+                "/mock-actions", json={**body, "run_id": run_id}
+            )
+            assert response.status_code == 409, (key, body["action_type"])
+            assert key in response.json()["detail"]
+
+        run_detail = test_client.get(f"/agent/runs/{run_id}")
+        assert run_detail.status_code == 200
+        assert run_detail.json()["mock_actions"] == []
+
+    # Nothing leaked into the approval queue either.
+    assert test_client.get("/approvals?status=pending").json() == []
+
+
+def test_terminal_runs_accept_only_low_risk_operator_followups(
+    client: tuple[TestClient, dict[str, str]],
+) -> None:
+    """Product decision (pinned in ``app.approvals.service.create_mock_action``):
+    terminal runs accept low-risk operator follow-ups, which execute
+    immediately and can never create a pending approval, but reject high-risk
+    actions with 409 - a pending approval on a finished run could never gate
+    anything and would leave the run in a contradictory state."""
+    test_client, run_ids = client
+
+    for key in ("succeeded", "failed"):
+        run_id = run_ids[key]
+        low = test_client.post(
+            "/mock-actions", json={**LOW_RISK_ACTION_BODY, "run_id": run_id}
+        )
+        assert low.status_code == 201, (key, low.json())
+        assert low.json()["status"] == "executed"
+        assert low.json()["approval_request"] is None
+
+        high = test_client.post(
+            "/mock-actions", json={**HIGH_RISK_ACTION_BODY, "run_id": run_id}
+        )
+        assert high.status_code == 409, (key, high.json())
+        assert key in high.json()["detail"]
+
+    # The rejected high-risk attempts created no pending approvals.
+    assert test_client.get("/approvals?status=pending").json() == []
+
+
+def test_checkpoint_run_accepts_operator_actions_and_resume_completes(
+    client: tuple[TestClient, dict[str, str]],
+) -> None:
+    """A run parked at the approval checkpoint is the operator's legitimate
+    window: new low-risk actions execute immediately and new high-risk actions
+    join the pending queue. Deciding every pending approval resumes the run
+    through the system-managed path to ``succeeded`` - proving the internal
+    resume path is unaffected by the operator force-succeed ban."""
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
+
+    low = test_client.post(
+        "/mock-actions", json={**LOW_RISK_ACTION_BODY, "run_id": run_id}
+    )
+    assert low.status_code == 201
+    assert low.json()["status"] == "executed"
+
+    high = test_client.post(
+        "/mock-actions", json={**HIGH_RISK_ACTION_BODY, "run_id": run_id}
+    )
+    assert high.status_code == 201
+    approval_id = high.json()["approval_request"]["id"]
+
+    decision = test_client.post(
+        f"/approvals/{approval_id}/approve", json={"notes": "Looks cited."}
+    )
+    assert decision.status_code == 200
+
+    run_detail = test_client.get(f"/agent/runs/{run_id}")
+    assert run_detail.status_code == 200
+    assert run_detail.json()["status"] == "succeeded"
+    assert run_detail.json()["completed_at"] is not None
+
+
+def test_approving_high_risk_action_executes_and_records_decision(
+    client: tuple[TestClient, dict[str, str]],
+) -> None:
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
     create_response = test_client.post(
         "/mock-actions",
         json={
@@ -336,9 +496,10 @@ def test_approving_high_risk_action_executes_and_records_decision(
 
 
 def test_rejected_high_risk_action_does_not_execute(
-    client: tuple[TestClient, str],
+    client: tuple[TestClient, dict[str, str]],
 ) -> None:
-    test_client, run_id = client
+    test_client, run_ids = client
+    run_id = run_ids["waiting"]
     create_response = test_client.post(
         "/mock-actions",
         json={
@@ -478,6 +639,81 @@ def test_customer_email_payload_carries_report_evidence_references(
     ]
     assert "CSV import instability" in customer_email.payload["body"]
     assert "renewal" not in customer_email.payload["subject"].lower()
+
+
+def test_agent_action_paths_bypass_operator_run_state_guard(
+    session_factory: Callable[[], Session],
+) -> None:
+    """The operator run-state guard lives only in the operator API entry point
+    (``create_mock_action``). The agent's own action creation happens while the
+    run is still ``running`` and must never be blocked by it:
+
+    - ``propose_actions_for_report`` is invoked by the executor during a
+      ``running`` run (its output feeds finalization's pending-approval count);
+    - the registry tool bindings ``create_low_risk_mock_action`` and
+      ``request_high_risk_approval`` are agent-actor entries and must stay
+      callable mid-run, so they bypass the operator guard as well.
+    """
+    with session_factory() as session:
+        reseed_database(session)
+        incident_id = session.scalar(select(Incident.id))
+        assert incident_id is not None
+        now = datetime(2026, 6, 9, 12, 30, 0)
+        run = AgentRun(
+            id="run_agent_path_running",
+            incident_id=None,
+            agent_id=DEFAULT_AGENT_ID,
+            agent_version_id=DEFAULT_AGENT_VERSION_ID,
+            status="running",
+            trace_id="local-agent-path",
+            input_payload={"incident_id": incident_id},
+            final_report=None,
+            token_estimate=1,
+            cost_estimate_usd=0.0,
+            error=None,
+            started_at=now,
+            completed_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(run)
+        session.commit()
+
+        proposed = propose_actions_for_report(
+            session,
+            run_id=run.id,
+            report=sample_report(),
+        )
+        assert len(proposed) == 4
+        assert any(action.status == "pending_approval" for action in proposed)
+
+        low = create_low_risk_mock_action(
+            session,
+            MockActionCreate(
+                run_id=run.id,
+                action_type="draft_slack_message",
+                title="Agent tool draft",
+                description="Created via the registry tool binding mid-run.",
+                target="#revenue-ops",
+                payload={"message": "Mid-run tool dispatch."},
+            ),
+        )
+        assert low.status == "executed"
+        assert low.created_by == "agent"
+
+        high = request_high_risk_approval(
+            session,
+            MockActionCreate(
+                run_id=run.id,
+                action_type="draft_customer_email",
+                title="Agent tool approval request",
+                description="Created via the registry approval binding mid-run.",
+                target="affected billing contacts",
+                payload={"subject": "Update", "body": "Mid-run approval request."},
+            ),
+        )
+        assert high.status == "pending_approval"
+        assert high.created_by == "agent"
 
 
 def sample_report(

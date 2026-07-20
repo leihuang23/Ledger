@@ -9,6 +9,9 @@ advancement through ``POST /runs/{id}/transitions`` and maps an
 Phase 5 uses ``running <-> waiting_for_approval`` for the system-managed
 approval checkpoint. The operator transition API still cannot place a run into
 that state directly; only the action proposal and approval decision paths own it.
+Operators likewise cannot advance ``running -> succeeded``: run completion is
+reserved for workflow finalization and the approval resume path so a succeeded
+run always carries a generated report (audit hardening).
 """
 
 from __future__ import annotations
@@ -60,4 +63,10 @@ def validate_operator_transition(current: str, target: str) -> None:
         raise IllegalTransition(
             "Approval checkpoint resume is system-managed; decide every pending "
             "approval or transition the run to 'failed'."
+        )
+    if current == "running" and target == "succeeded":
+        raise IllegalTransition(
+            "Run completion is system-managed: only workflow finalization or "
+            "the approval resume path advances a run to 'succeeded'. "
+            "Operators may force-fail a run instead."
         )

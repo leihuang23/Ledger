@@ -34,6 +34,17 @@ ACTION_ACTOR = "agent"
 # from agent-proposed ones. Client-supplied actor fields are never trusted.
 OPERATOR_ACTOR = "operator"
 APPROVER_ACTOR = "demo-approver"
+
+
+class RunStateConflictError(Exception):
+    """An operator mock action was rejected because of the run lifecycle state.
+
+    Mapped to HTTP 409 by the router, mirroring how illegal run transitions
+    surface. Distinct from ``ValueError`` so payload-contract violations keep
+    their 422 mapping.
+    """
+
+
 PAYLOAD_CONTRACTS = {
     "draft_slack_message": {
         "required": {"message"},
@@ -60,18 +71,61 @@ def create_mock_action(
     *,
     actor: str = OPERATOR_ACTOR,
 ) -> MockActionRead:
-    """Legacy operator API: create a mock action and gate high-risk actions.
+    """Operator API entry point: create a mock action and gate high-risk actions.
+
+    This is the only path that enforces the operator run-state policy
+    (``_validate_operator_action_run_state``). The agent's own action creation
+    bypasses it on purpose: the executor proposes actions via
+    ``propose_actions_for_report`` (straight to ``_create_mock_action_record``)
+    while the run is still ``running``, and the registry tool bindings below
+    (``create_low_risk_mock_action`` / ``request_high_risk_approval``) are
+    agent-actor entries that must stay callable mid-run. Nothing in the
+    runtime dispatches those bindings through this operator entry point.
 
     Operator-created actions are attributed to ``OPERATOR_ACTOR`` in the audit
     trail; the governed tool wrappers below pass ``ACTION_ACTOR`` instead.
     """
-    run = session.get(AgentRun, payload.run_id)
-    if run is None:
-        raise LookupError(f"Unknown agent run id: {payload.run_id}")
+    # Lock the run row so the state check serializes with approval decisions
+    # and executor finalization (both take the same lock).
+    run = _lock_approval_run(session, payload.run_id)
+    _validate_operator_action_run_state(run, payload.action_type)
 
     action = _create_mock_action_record(session, payload, actor=actor)
     session.commit()
     return get_mock_action(session, action.id)
+
+
+def _validate_operator_action_run_state(run: AgentRun, action_type: str) -> None:
+    """Run-state policy for operator-injected mock actions (POST /mock-actions).
+
+    - ``queued``/``running``: rejected. While a run is in flight the agent owns
+      action creation; an injected high-risk action would inflate
+      finalization's ``pending_approval_count`` and drag the run into
+      ``waiting_for_approval``.
+    - ``waiting_for_approval``: allowed. The approval checkpoint is the
+      operator's legitimate window; new high-risk actions join the pending
+      queue and the run resumes only once every pending approval is decided.
+    - ``succeeded``/``failed`` (terminal): product decision - low-risk
+      follow-ups stay allowed because they execute immediately and can never
+      create a pending approval, so the "no pending approvals on a terminal
+      run" invariant holds. High-risk actions are rejected: a pending approval
+      on a finished run could never gate anything and would leave the approval
+      queue pointing at a run that can no longer resume.
+    """
+    if run.status in ("queued", "running"):
+        raise RunStateConflictError(
+            f"Cannot add operator actions to run {run.id} while it is "
+            f"{run.status!r}; the agent owns action creation until the run "
+            "reaches the approval checkpoint or a terminal state."
+        )
+    if run.status in ("succeeded", "failed") and (
+        classify_action_risk(action_type) == "high"
+    ):
+        raise RunStateConflictError(
+            f"Cannot request approval for run {run.id}: the run is "
+            f"{run.status!r} (terminal), so a pending approval could never be "
+            "resolved by it. Low-risk follow-up actions remain allowed."
+        )
 
 
 def create_low_risk_mock_action(
@@ -82,7 +136,7 @@ def create_low_risk_mock_action(
         raise ValueError(
             f"{payload.action_type} requires the request_approval tool"
         )
-    return create_mock_action(session, payload, actor=ACTION_ACTOR)
+    return _create_tool_mock_action(session, payload)
 
 
 def request_high_risk_approval(
@@ -93,7 +147,19 @@ def request_high_risk_approval(
         raise ValueError(
             f"{payload.action_type} does not require an approval request"
         )
-    return create_mock_action(session, payload, actor=ACTION_ACTOR)
+    return _create_tool_mock_action(session, payload)
+
+
+def _create_tool_mock_action(
+    session: Session, payload: MockActionCreate
+) -> MockActionRead:
+    """Agent-actor tool entry: mirrors ``create_mock_action`` without the
+    operator run-state guard so mid-run (``running``) dispatch stays legal."""
+    if session.get(AgentRun, payload.run_id) is None:
+        raise LookupError(f"Unknown agent run id: {payload.run_id}")
+    action = _create_mock_action_record(session, payload, actor=ACTION_ACTOR)
+    session.commit()
+    return get_mock_action(session, action.id)
 
 
 def _create_mock_action_record(
@@ -450,12 +516,14 @@ def _invalidate_run_detail_cache(run_id: str) -> None:
 
 
 def _lock_approval_run(session: Session, run_id: str) -> AgentRun:
-    """Serialize decisions for a run so the last one reliably resumes it.
+    """Serialize run-scoped approval state changes on the run row.
 
     Approvals are separate rows, so two operators can decide different pending
     actions concurrently. Locking their shared run prevents both transactions
     from observing the other approval as still pending and leaving the run
-    stranded in ``waiting_for_approval``.
+    stranded in ``waiting_for_approval``. The operator mock-action creator
+    takes the same lock so its run-state check serializes with decisions and
+    executor finalization.
     """
     run = session.scalar(
         select(AgentRun).where(AgentRun.id == run_id).with_for_update()

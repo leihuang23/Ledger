@@ -12,6 +12,7 @@ from app.approvals.schemas import (
     RiskLevel,
 )
 from app.approvals.service import (
+    RunStateConflictError,
     approve_request,
     create_mock_action,
     list_approval_requests,
@@ -52,6 +53,11 @@ def propose_mock_action(
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except RunStateConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
     except ValueError as exc:

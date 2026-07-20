@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -391,6 +391,49 @@ def test_operator_cannot_resume_system_managed_approval_checkpoint(
     assert cancel.json()["status"] == "failed"
 
 
+def test_operator_cannot_force_succeed_running_run(
+    session_factory: Callable[[], Session],
+) -> None:
+    """Audit hardening: an operator must not advance a ``running`` run straight
+    to ``succeeded``. That shortcut skips report generation and the approval
+    checkpoint, producing a succeeded run with no ``final_report``. Only
+    workflow finalization and the approval resume path may complete a run;
+    operators retain force-fail for intervention."""
+    _seed(session_factory)
+    client, _ = _client_with_db(session_factory)
+
+    with session_factory() as session:
+        _make_run(
+            session,
+            run_id="run_force_succeed_rejected",
+            status="running",
+            incident_id=SEEDED_INCIDENT_ID,
+            started_at=utcnow_naive(),
+        )
+
+    force_succeed = client.post(
+        "/runs/run_force_succeed_rejected/transitions",
+        json={"status": "succeeded"},
+    )
+    assert force_succeed.status_code == 409
+    assert "system-managed" in force_succeed.json()["detail"]
+
+    # The run is untouched: still running, still no completed_at.
+    with session_factory() as session:
+        run = session.get(AgentRun, "run_force_succeed_rejected")
+    assert run is not None
+    assert run.status == "running"
+    assert run.completed_at is None
+
+    # The operator retains force-fail as the intervention path.
+    force_fail = client.post(
+        "/runs/run_force_succeed_rejected/transitions",
+        json={"status": "failed"},
+    )
+    assert force_fail.status_code == 200
+    assert force_fail.json()["status"] == "failed"
+
+
 def test_transition_sets_timestamps_for_target_state(
     session_factory: Callable[[], Session],
 ) -> None:
@@ -493,15 +536,20 @@ def test_stale_control_plane_run_self_heals_to_failed(
     assert run.status == "failed"
 
 
-def test_reaper_does_not_overwrite_concurrent_force_succeed(
+def test_reaper_does_not_overwrite_concurrent_force_fail(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pass 9 Fix 1: the orphan reaper's conditional UPDATE does not overwrite
-    a concurrent operator force-succeed. The reaper reads the run as stale
-    (running, old updated_at), but a concurrent ``transition_run`` force-succeeds
+    a concurrent operator transition. The reaper reads the run as stale
+    (running, old updated_at), but a concurrent ``transition_run`` force-fails
     it before the reaper's conditional UPDATE fires. The ``WHERE status IN
-    (active)`` guard prevents overwriting the succeeded run."""
+    (active)`` guard prevents overwriting the terminal run.
+
+    (Originally written against force-succeed; operator force-succeed has since
+    been banned by ``validate_operator_transition`` - only system paths may
+    complete a run - so the race is now modeled with force-fail, which
+    exercises the same reaper guard.)"""
     from app.agent.service import _run_last_activity_at
 
     _seed(session_factory)
@@ -519,10 +567,10 @@ def test_reaper_does_not_overwrite_concurrent_force_succeed(
     original_activity = _run_last_activity_at
 
     def racing_activity(session, run):
-        # Force-succeed the run in a separate session DURING the reaper's
+        # Force-fail the run in a separate session DURING the reaper's
         # staleness check, simulating a concurrent operator transition.
         with session_factory() as other:
-            transition_run(other, "run_reaper_race", "succeeded")
+            transition_run(other, "run_reaper_race", "failed")
         return original_activity(session, run)
 
     monkeypatch.setattr("app.agent.service._run_last_activity_at", racing_activity)
@@ -535,7 +583,7 @@ def test_reaper_does_not_overwrite_concurrent_force_succeed(
     with session_factory() as session:
         run = session.get(AgentRun, "run_reaper_race")
     assert run is not None
-    assert run.status == "succeeded"
+    assert run.status == "failed"
     assert run.error is None
 
 
@@ -1070,25 +1118,31 @@ def test_executor_success_does_not_overwrite_concurrent_force_fail(
     assert run.final_report is None
 
 
-def test_executor_failure_does_not_overwrite_concurrent_force_succeed(
+def test_executor_failure_does_not_overwrite_concurrent_succeeded_run(
     session_factory: Callable[[], Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Pass 7 fix: when an operator force-succeeds a run while the executor is
+    """Pass 7 fix: when a run reaches ``succeeded`` while the executor is
     failing it (workflow raises), the conditional UPDATE + status check in
-    ``_fail_running_run`` must NOT overwrite the operator's ``succeeded`` status
+    ``_fail_running_run`` must NOT overwrite the terminal ``succeeded`` status
     with ``failed``.
 
     Pass 10 Fix C: the trace is finalized with the ACTUAL persisted state
-    (``outputs=None, error=None`` for a force-succeeded run), NOT the
-    workflow's ``RuntimeError`` error string — proving the ``_finish_trace``
+    (``outputs=None, error=None`` for a succeeded run), NOT the
+    workflow's ``RuntimeError`` error string - proving the ``_finish_trace``
     reordering works correctly.
 
     Symmetric to ``test_executor_success_does_not_overwrite_concurrent_force_fail``.
     Before the fix, ``_fail_running_run`` used an unconditional ORM commit
-    (``failed_run.status = 'failed'``) that would clobber a concurrent
-    force-succeed. The fix uses a conditional UPDATE ``WHERE status = 'running'``
-    so a concurrent terminal transition wins."""
+    (``failed_run.status = 'failed'``) that would clobber a concurrent terminal
+    transition. The fix uses a conditional UPDATE ``WHERE status = 'running'``
+    so a concurrent terminal transition wins.
+
+    The concurrent ``succeeded`` write is simulated with a raw conditional
+    UPDATE rather than ``transition_run``: operator force-succeed is now
+    rejected by ``validate_operator_transition`` (only workflow finalization
+    and the approval resume path may complete a run), so the race is modeled
+    as the system write it would have to be."""
     from app.agent.service import execute_investigation_run_with_session
 
     _seed(session_factory)
@@ -1108,8 +1162,17 @@ def test_executor_failure_does_not_overwrite_concurrent_force_succeed(
     def workflow_with_concurrent_succeed(session, _run, _trace, **_kwargs):
         session.commit()
         with session_factory() as other:
-            transition_run(other, "run_concurrent_succeed", "succeeded")
-        raise RuntimeError("workflow failed after operator force-succeed")
+            now = utcnow_naive()
+            other.execute(
+                update(AgentRun)
+                .where(
+                    AgentRun.id == "run_concurrent_succeed",
+                    AgentRun.status == "running",
+                )
+                .values(status="succeeded", completed_at=now, updated_at=now)
+            )
+            other.commit()
+        raise RuntimeError("workflow failed after concurrent system completion")
 
     monkeypatch.setattr("app.agent.service._finish_trace", spy_finish)
     monkeypatch.setattr(
