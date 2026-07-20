@@ -28,7 +28,7 @@ def get_dataset_anchor(session: Session) -> datetime:
 
 def get_mrr_metrics(session: Session, anchor: datetime | None = None) -> MrrMetrics:
     anchor = anchor or get_dataset_anchor(session)
-    churn_cutoff = anchor.date() - timedelta(days=30)
+    window_start = anchor.date() - timedelta(days=30)
 
     row = session.execute(
         select(
@@ -41,12 +41,33 @@ def get_mrr_metrics(session: Session, anchor: datetime | None = None) -> MrrMetr
                 ),
                 0,
             ).label("current_mrr"),
+            # Window-start snapshot: MRR of subscriptions that were active at
+            # the start of the trailing 30d window (already started and not
+            # yet canceled at that moment). This is the honest baseline for
+            # the delta: it captures new business, expansion, contraction,
+            # and churn instead of collapsing the delta to -churned_mrr.
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            (Subscription.started_at <= window_start)
+                            & (
+                                (Subscription.canceled_at.is_(None))
+                                | (Subscription.canceled_at > window_start)
+                            ),
+                            Subscription.mrr_cents,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("previous_mrr"),
             func.coalesce(
                 func.sum(
                     case(
                         (
                             (Subscription.status == "canceled")
-                            & (Subscription.canceled_at >= churn_cutoff),
+                            & (Subscription.canceled_at >= window_start),
                             Subscription.mrr_cents,
                         ),
                         else_=0,
@@ -61,9 +82,9 @@ def get_mrr_metrics(session: Session, anchor: datetime | None = None) -> MrrMetr
     ).one()
 
     current_mrr = int(row.current_mrr or 0)
-    previous_churned_mrr = int(row.churned_mrr or 0)
+    previous_mrr = int(row.previous_mrr or 0)
+    churned_mrr = int(row.churned_mrr or 0)
     active_subscriptions = int(row.active_subscriptions or 0)
-    previous_mrr = current_mrr + previous_churned_mrr
     delta_cents = current_mrr - previous_mrr
     delta_percent = round((delta_cents / previous_mrr) * 100, 2) if previous_mrr else 0.0
 
@@ -73,7 +94,7 @@ def get_mrr_metrics(session: Session, anchor: datetime | None = None) -> MrrMetr
         delta_cents=delta_cents,
         delta_percent=delta_percent,
         active_subscriptions=active_subscriptions,
-        churned_mrr_cents=previous_churned_mrr,
+        churned_mrr_cents=churned_mrr,
     )
 
 
@@ -141,8 +162,12 @@ def get_failed_invoice_metrics(
 
     failed_count = int(agg_row.failed_count or 0)
     failed_amount = int(agg_row.failed_amount or 0)
-    # unresolved_count_30d previously ran the identical COUNT(*) query; the
-    # duplicate is removed but the field is retained for API compatibility.
+    # Invoices carry no resolved/resolved_at signal, so a true "failed and
+    # still unresolved" count cannot be computed without inventing semantics.
+    # unresolved_count_30d is retained for API compatibility and currently
+    # reports failed invoices in the trailing 30d (identical to
+    # failed_count_30d); this is documented on the schema field, in the
+    # README, and on the dashboard card.
     unresolved_count = failed_count
 
     rows = session.execute(

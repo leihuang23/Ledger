@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 import threading
 
 import pytest
@@ -41,6 +41,7 @@ from app.models import (
 from app.seed import (
     SCENARIOS,
     SCENARIO_ACCOUNT_NUMBERS,
+    account_id,
     dataset_fingerprint,
     ensure_seeded_if_empty,
     reseed_database,
@@ -233,6 +234,11 @@ def test_core_metric_queries_match_seeded_incidents(
         dashboard = get_dashboard_metrics(session)
 
         assert dashboard.mrr.current_mrr_cents > 0
+        # previous_mrr_cents is a window-start snapshot (subscriptions active
+        # 30d before the anchor). The seed has no in-window signups, so the
+        # snapshot here equals current + churned and the delta is negative;
+        # the snapshot semantics themselves are pinned by
+        # test_mrr_previous_window_is_snapshot_at_window_start.
         assert dashboard.mrr.previous_mrr_cents > dashboard.mrr.current_mrr_cents
         assert dashboard.mrr.delta_cents < 0
         assert dashboard.churn.churned_accounts_30d == 5
@@ -269,17 +275,95 @@ def _count_queries(session: Session, fn: Callable[[], object]) -> int:
 def test_failed_invoice_unresolved_count_matches_failed_count(
     session_factory: Callable[[], Session],
 ) -> None:
-    """unresolved_count_30d must equal failed_count_30d.
+    """unresolved_count_30d currently equals failed_count_30d by design.
 
-    Both previously ran the same COUNT(*) WHERE status='failed' AND
-    invoice_date >= cutoff query; the duplicate is removed but the field is
-    retained for API backwards compatibility and must stay consistent.
+    Invoices have no resolved/resolved_at signal, so a true "failed and
+    still unresolved" count would be invented semantics. The field is
+    retained for API compatibility and documented (schema description,
+    README, dashboard card) as "failed invoices in trailing 30d".
     """
     with session_factory() as session:
         reseed_database(session)
         anchor = get_dataset_anchor(session)
         metrics = get_failed_invoice_metrics(session, anchor)
         assert metrics.unresolved_count_30d == metrics.failed_count_30d
+
+
+def test_mrr_previous_window_is_snapshot_at_window_start(
+    session_factory: Callable[[], Session],
+) -> None:
+    """previous_mrr_cents is a window-start snapshot: the sum of mrr_cents
+    over subscriptions active at the start of the trailing 30d window
+    (started_at <= window start AND (canceled_at IS NULL OR
+    canceled_at > window start)).
+
+    New business signed inside the window raises current MRR but must NOT
+    raise previous MRR. Under the old semantics (previous = current +
+    churned) delta_cents was always exactly -churned_mrr_cents; with the
+    snapshot, in-window signups move the delta upward.
+    """
+    with session_factory() as session:
+        reseed_database(session)
+        anchor = get_dataset_anchor(session)
+        baseline = get_mrr_metrics(session, anchor)
+
+        # New subscription signed 10 days into the trailing 30d window.
+        session.add(
+            Subscription(
+                id="sub_test_new_business",
+                account_id=account_id(42),
+                plan="growth",
+                status="active",
+                mrr_cents=50_000,
+                seats=10,
+                started_at=anchor.date() - timedelta(days=20),
+            )
+        )
+        session.commit()
+
+        metrics = get_mrr_metrics(session, anchor)
+
+        assert metrics.current_mrr_cents == baseline.current_mrr_cents + 50_000
+        # The window-start snapshot is unaffected by in-window signups.
+        assert metrics.previous_mrr_cents == baseline.previous_mrr_cents
+        assert metrics.delta_cents == baseline.delta_cents + 50_000
+        assert metrics.delta_percent == round(
+            (metrics.delta_cents / metrics.previous_mrr_cents) * 100, 2
+        )
+        # churned_mrr_cents is reported independently of the delta.
+        assert metrics.churned_mrr_cents == baseline.churned_mrr_cents
+
+
+def test_mrr_snapshot_excludes_subscriptions_canceled_before_window(
+    session_factory: Callable[[], Session],
+) -> None:
+    """A subscription canceled before the window start belongs to neither the
+    current MRR nor the window-start snapshot, and is not counted as 30d
+    churn."""
+    with session_factory() as session:
+        reseed_database(session)
+        anchor = get_dataset_anchor(session)
+        baseline = get_mrr_metrics(session, anchor)
+
+        session.add(
+            Subscription(
+                id="sub_test_old_churn",
+                account_id=account_id(43),
+                plan="startup",
+                status="canceled",
+                mrr_cents=25_000,
+                seats=5,
+                started_at=anchor.date() - timedelta(days=200),
+                canceled_at=anchor.date() - timedelta(days=60),
+            )
+        )
+        session.commit()
+
+        metrics = get_mrr_metrics(session, anchor)
+
+        assert metrics.current_mrr_cents == baseline.current_mrr_cents
+        assert metrics.previous_mrr_cents == baseline.previous_mrr_cents
+        assert metrics.churned_mrr_cents == baseline.churned_mrr_cents
 
 
 def test_mrr_metrics_uses_single_aggregation_round_trip(

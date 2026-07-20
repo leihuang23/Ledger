@@ -8,10 +8,14 @@ export type HealthResponse = {
 
 export type MrrMetrics = {
   current_mrr_cents: number;
+  // Window-start snapshot: MRR of subscriptions active at the start of the
+  // trailing 30d window (started and not yet canceled at that moment).
   previous_mrr_cents: number;
+  // current - previous; captures new business, expansion, contraction, churn.
   delta_cents: number;
   delta_percent: number;
   active_subscriptions: number;
+  // MRR canceled within the trailing 30d window, reported independently.
   churned_mrr_cents: number;
 };
 
@@ -34,6 +38,9 @@ export type FailedInvoiceSample = {
 export type FailedInvoiceMetrics = {
   failed_count_30d: number;
   failed_amount_cents_30d: number;
+  // Invoices have no resolved signal; this currently reports failed invoices
+  // in the trailing 30d (identical to failed_count_30d), kept for API
+  // compatibility. Do not display it as "unresolved".
   unresolved_count_30d: number;
   recent_failures: FailedInvoiceSample[];
 };

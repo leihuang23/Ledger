@@ -489,6 +489,9 @@ Inspect the project as a vertical product slice first. Promote it to full MVP in
 2. Review the dashboard at http://localhost:3000.
    - Confirm the UI shows current MRR, MRR delta, failed invoices, ticket volume, active users, churn, and detected revenue anomalies.
    - Any seeded anomaly shown in the UI should point to a clear metric movement and affected accounts.
+   - Metric semantics to expect:
+     - `previous_mrr_cents` is a window-start snapshot: the summed `mrr_cents` of subscriptions active at the start of the trailing 30d window (`started_at <= window start` and not yet canceled at that moment). `delta_cents`/`delta_percent` are computed against that snapshot, so they capture new business, expansion, contraction, and churn rather than collapsing to `-churned_mrr_cents`. `churned_mrr_cents` is still reported independently.
+     - `unresolved_count_30d` currently reports failed invoices in the trailing 30d (identical to `failed_count_30d`). Invoices carry no resolved signal, so a true unresolved count would be invented semantics; the field is retained for API compatibility and labeled as failed-in-trailing-30d in the UI.
 
 3. Open the incident detail flow.
    - Use the detected anomaly's "View incident" or "Open incident" action.

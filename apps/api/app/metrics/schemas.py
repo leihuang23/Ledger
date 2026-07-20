@@ -2,16 +2,35 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MrrMetrics(BaseModel):
     current_mrr_cents: int
-    previous_mrr_cents: int
-    delta_cents: int
-    delta_percent: float
+    previous_mrr_cents: int = Field(
+        description=(
+            "Window-start snapshot: sum of mrr_cents over subscriptions "
+            "active at the start of the trailing 30d window (started_at <= "
+            "window start and not yet canceled at that moment). Not derived "
+            "from churn."
+        )
+    )
+    delta_cents: int = Field(
+        description=(
+            "current_mrr_cents - previous_mrr_cents; captures new business, "
+            "expansion, contraction, and churn over the trailing 30d window."
+        )
+    )
+    delta_percent: float = Field(
+        description="delta_cents as a percentage of previous_mrr_cents."
+    )
     active_subscriptions: int
-    churned_mrr_cents: int
+    churned_mrr_cents: int = Field(
+        description=(
+            "MRR of subscriptions canceled within the trailing 30d window, "
+            "reported independently of the delta."
+        )
+    )
 
 
 class ChurnMetrics(BaseModel):
@@ -33,7 +52,13 @@ class FailedInvoiceSample(BaseModel):
 class FailedInvoiceMetrics(BaseModel):
     failed_count_30d: int
     failed_amount_cents_30d: int
-    unresolved_count_30d: int
+    unresolved_count_30d: int = Field(
+        description=(
+            "Invoices carry no resolved signal; this field currently reports "
+            "failed invoices in the trailing 30d (identical to "
+            "failed_count_30d) and is retained for API compatibility."
+        )
+    )
     recent_failures: list[FailedInvoiceSample]
 
 

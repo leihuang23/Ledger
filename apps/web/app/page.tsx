@@ -142,13 +142,13 @@ function Dashboard({
         <MetricCard
           label="Current MRR"
           value={formatMoney(data.mrr.current_mrr_cents)}
-          detail={`${formatMoney(Math.abs(data.mrr.delta_cents))} vs previous window`}
+          detail={`${formatMoney(data.mrr.delta_cents)} vs MRR 30 days ago`}
           tone={data.mrr.delta_cents < 0 ? 'danger' : 'good'}
         />
         <MetricCard
           label="MRR delta"
           value={formatPercent(data.mrr.delta_percent)}
-          detail={`${formatMoney(data.mrr.previous_mrr_cents)} previous MRR`}
+          detail={`${formatMoney(data.mrr.previous_mrr_cents)} MRR snapshot 30d ago`}
           tone={data.mrr.delta_cents < 0 ? 'danger' : 'good'}
         />
         <MetricCard
@@ -182,7 +182,8 @@ function Dashboard({
           <div className="panel-header">
             <h2>Recent failed invoices</h2>
             <span>
-              {formatCount(data.failed_invoices.unresolved_count_30d)} unresolved failures
+              {formatCount(data.failed_invoices.unresolved_count_30d)} failed in
+              trailing 30d
             </span>
           </div>
           <div className="table-wrap">
