@@ -13,7 +13,10 @@ class AgentVersionObservability(BaseModel):
     fallback path records a zero cost so a reviewer can see when the agent fell
     back to deterministic diagnosis. Latency is derived from
     ``completed_at - started_at`` (FR-19) and is ``None`` when the version has
-    no completed runs.
+    no completed runs. On Postgres, avg/p95 latency are full-population
+    SQL-side aggregates (``percentile_cont``); on other dialects (SQLite in
+    tests) they are computed over a bounded sample of the most recent 10,000
+    runs per version.
     """
 
     agent_id: str
@@ -39,7 +42,9 @@ class AgentObservabilitySummary(BaseModel):
 
     Cost fields are always *estimates*. Latency aggregates are computed across
     every run of every version for the agent; ``None`` when the agent has no
-    completed runs.
+    completed runs. On Postgres they are full-population SQL-side aggregates;
+    on other dialects (SQLite in tests) they derive from a bounded sample of
+    the most recent 10,000 runs per version.
     """
 
     agent_id: str

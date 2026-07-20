@@ -3,9 +3,10 @@
 Behavior tests for the per-agent-version aggregate surface:
 
 * Given N runs with known statuses, costs, and latencies, the dashboard returns
-  the correct total runs, success rate, p95 latency (nearest-rank, derived from
-  ``completed_at - started_at`` per FR-19), average latency, average cost, and
-  total cost.
+  the correct total runs, success rate, p95 latency (nearest-rank over a
+  bounded sample of the most recent 10,000 runs per version on SQLite, derived
+  from ``completed_at - started_at`` per FR-19; Postgres aggregates SQL-side
+  with ``percentile_cont``), average latency, average cost, and total cost.
 * ``GET /dashboard/agents`` lists every agent version that has runs;
   ``GET /dashboard/agents/{agent_id}`` scopes to one agent's versions.
 * Cost is always labeled as an *estimate* (the field is ``cost_estimate_usd``).
@@ -263,11 +264,12 @@ def test_dashboard_responds_within_perf_floor_for_1k_runs(
     aggregate must stay well under the 500 ms p95 budget at a 1k-run scale.
 
     This is a regression floor that catches gross slowdowns (missing index,
-    N+1, accidental full-table scans). The latency path computes p95 in Python
-    (portable across Postgres/SQLite), so a regression here is the earliest
-    signal. The full 10k-run NFR check above remains opt-in via
-    ``RUN_DASHBOARD_PERF``; this default-on variant ensures the requirement
-    has an automated floor a reviewer can see green.
+    N+1, accidental unbounded scans). On SQLite the latency path computes p95
+    in Python over a bounded per-version sample (most recent 10,000 runs);
+    on Postgres it is a single SQL-side ``percentile_cont`` aggregate, so a
+    regression here is the earliest signal. The full 10k-run NFR check above
+    remains opt-in via ``RUN_DASHBOARD_PERF``; this default-on variant ensures
+    the requirement has an automated floor a reviewer can see green.
     """
     _seed(session_factory)
     with session_factory() as session:

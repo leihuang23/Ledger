@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { runEvalDatasetFromStudio } from '@/app/actions';
 import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
+import { TraceLink } from '@/app/TraceLink';
 import type {
   AgentSummary,
   AgentVersionSummary,
@@ -591,8 +592,12 @@ function formatDelta(value: number) {
 }
 
 function traceLink(result: EvalResult) {
-  if (result.trace_url?.startsWith('http')) {
-    return <a href={result.trace_url}>{result.trace_provider ?? 'trace'}</a>;
-  }
-  return result.trace_id ?? result.trace_provider ?? 'local';
+  return (
+    <TraceLink
+      traceUrl={result.trace_url}
+      traceId={result.trace_id}
+      externalLabel={result.trace_provider ?? 'trace'}
+      fallback={result.trace_id ?? result.trace_provider ?? 'local'}
+    />
+  );
 }

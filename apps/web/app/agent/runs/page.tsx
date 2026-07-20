@@ -1,4 +1,6 @@
 import Link from 'next/link';
+
+import { TraceLink } from '@/app/TraceLink';
 import { listAgentRuns } from '@/lib/api';
 import { formatDateTime, formatUsd } from '@/lib/format';
 
@@ -66,13 +68,13 @@ export default async function AgentRunsPage() {
                   <td>{run.token_estimate}</td>
                   <td>{formatUsd(run.cost_estimate_usd)}</td>
                   <td>
-                    {run.trace_url && run.trace_url.startsWith('http') ? (
-                      <a href={run.trace_url} target="_blank" rel="noreferrer">
-                        {run.trace_provider}
-                      </a>
-                    ) : (
-                      run.trace_provider ?? '—'
-                    )}
+                    <TraceLink
+                      traceUrl={run.trace_url}
+                      traceId={run.trace_id}
+                      externalLabel={run.trace_provider ?? 'trace'}
+                      fallback={run.trace_provider ?? '—'}
+                      externalNewTab
+                    />
                   </td>
                 </tr>
               ))}

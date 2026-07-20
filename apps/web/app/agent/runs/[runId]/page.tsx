@@ -5,6 +5,7 @@ import {
   rejectApprovalFromRun,
 } from '@/app/actions';
 import { ReadOnlyOperatorNotice } from '@/app/ReadOnlyOperatorNotice';
+import { TraceLink } from '@/app/TraceLink';
 import { RunRefresh } from './RunRefresh';
 import type {
   ActionAuditEvent,
@@ -167,11 +168,12 @@ function RunReport({
         <div>
           <span className="label">Trace</span>
           <strong>
-            {run.trace_url && run.trace_url.startsWith('http') ? (
-              <a href={run.trace_url}>{run.trace_id ?? run.trace_provider ?? 'trace'}</a>
-            ) : (
-              run.trace_url ?? run.trace_id ?? 'not recorded'
-            )}
+            <TraceLink
+              traceUrl={run.trace_url}
+              traceId={run.trace_id}
+              externalLabel={run.trace_id ?? run.trace_provider ?? 'trace'}
+              fallback={run.trace_url ?? run.trace_id ?? 'not recorded'}
+            />
           </strong>
         </div>
         <div>
