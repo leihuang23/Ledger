@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 
+const apiBaseUrl = process.env.PLAYWRIGHT_API_BASE_URL ?? 'http://localhost:8000';
+
 test.describe('Phase 5 quality controls', () => {
-  test('comparison highlights a regression between published versions', async ({ page }) => {
-    test.setTimeout(360000);
+  test('comparison highlights a regression between published versions', async ({ page, request }) => {
+    test.setTimeout(600000);
     await page.goto('/evals');
     await expect(page.getByRole('heading', { name: 'Eval Studio' })).toBeVisible();
     await expect(page.getByRole('complementary', { name: 'Eval datasets' })).toBeVisible();
@@ -13,24 +15,41 @@ test.describe('Phase 5 quality controls', () => {
     await expect(runVersion.locator(`option[value="${versionA}"]`)).toHaveCount(1);
     await expect(runVersion.locator(`option[value="${versionB}"]`)).toHaveCount(1);
 
-    await runVersion.selectOption(versionA);
-    await page.getByRole('button', { name: 'Run selected dataset' }).click();
-    await expect(page.getByText(/Eval run .* queued/)).toBeVisible();
+    // Queue an eval run per version and wait for each to reach a terminal
+    // status before asserting the comparison. The two suites share one seeded
+    // environment and are serialized by the worker's advisory lock, so on a
+    // cold worker they can take longer than a UI poll would tolerate. Waiting
+    // on the run status (as the portfolio-readiness suite does) keeps this
+    // assertion deterministic regardless of how long the runs take.
+    for (const versionId of [versionA, versionB]) {
+      await page.goto(
+        `/evals?dataset_id=mrr-drop-suite&results_version_id=${encodeURIComponent(versionId)}`,
+      );
+      await page.locator('select[name="agent_version_id"]').selectOption(versionId);
+      await Promise.all([
+        page.waitForURL((url) => url.searchParams.has('eval_notice')),
+        page.getByRole('button', { name: 'Run selected dataset' }).click(),
+      ]);
+      const notice = new URL(page.url()).searchParams.get('eval_notice');
+      const evalRunId = notice?.match(/evalrun_[a-f0-9]+/)?.[0];
+      expect(evalRunId).toBeTruthy();
 
-    await page.locator('select[name="agent_version_id"]').selectOption(versionB);
-    await page.getByRole('button', { name: 'Run selected dataset' }).click();
-    await expect(page.getByText(/Eval run .* queued/)).toBeVisible();
+      await expect
+        .poll(
+          async () => {
+            const response = await request.get(`${apiBaseUrl}/evals/runs/${evalRunId}`);
+            if (!response.ok()) return 'pending';
+            return (await response.json()).status as string;
+          },
+          { timeout: 300000 },
+        )
+        .toMatch(/passed|failed/);
+    }
 
-    await page.locator('select[name="version_a"]').selectOption(versionA);
-    await page.locator('select[name="version_b"]').selectOption(versionB);
-    await page.getByRole('button', { name: 'Compare A vs B' }).click();
-
-    await expect(async () => {
-      await page.reload();
-      await expect(page.locator('.regression-banner.has-regressions')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('.eval-regression-row').first()).toBeVisible();
-      await expect(page.getByText('Regression', { exact: true }).first()).toBeVisible();
-    }).toPass({ timeout: 240000 });
+    await page.goto(`/evals?dataset_id=mrr-drop-suite&version_a=${versionA}&version_b=${versionB}`);
+    await expect(page.locator('.regression-banner.has-regressions')).toBeVisible();
+    await expect(page.locator('.eval-regression-row').first()).toBeVisible();
+    await expect(page.getByText('Regression', { exact: true }).first()).toBeVisible();
   });
 
   test('approval filters are reflected in the URL and remain selected', async ({ page }) => {
