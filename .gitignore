@@ -34,3 +34,6 @@ playwright/.cache/
 # IDE / tool state
 .trae/
 .qoder/
+
+# Local launch tracking (not for public repo)
+docs/portfolio-launch-checklist.md
