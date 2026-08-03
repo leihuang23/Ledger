@@ -15,6 +15,7 @@ test('Cloudflare Worker config preserves the anonymous public demo contract', ()
   };
   const wranglerConfig = readAppFile('wrangler.jsonc');
   const devVarsExample = readAppFile('.dev.vars.example');
+  const envProduction = readAppFile('.env.production');
 
   assert.equal(packageJson.scripts['build:cloudflare'], 'opennextjs-cloudflare build');
   assert.equal(
@@ -47,13 +48,24 @@ test('Cloudflare Worker config preserves the anonymous public demo contract', ()
   assert.match(devVarsExample, /^NEXT_PUBLIC_API_BASE_URL=http:\/\/localhost:8000$/m);
   assert.match(devVarsExample, /^OPERATOR_UI_ENABLED=false$/m);
 
-  const publicConfig = `${wranglerConfig}\n${devVarsExample}`;
+  assert.match(envProduction, /^API_INTERNAL_BASE_URL=https:\/\/ledger-api\.onrender\.com$/m);
+  assert.match(
+    envProduction,
+    /^NEXT_PUBLIC_API_BASE_URL=https:\/\/ledger-api\.onrender\.com$/m,
+  );
+  assert.match(envProduction, /^OPERATOR_UI_ENABLED=false$/m);
+
+  const publicConfig = `${wranglerConfig}\n${devVarsExample}\n${envProduction}`;
   assert.doesNotMatch(
     publicConfig,
     /DEMO_OPERATOR_TOKEN|EVAL_RUN_TOKEN|DOCUMENT_INGEST_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|STRIPE_(?:API_KEY|WEBHOOK_SECRET)/,
   );
 
   assert.ok(existsSync(join(appRoot, 'open-next.config.ts')));
+  assert.ok(existsSync(join(appRoot, '.env.production')));
   assert.ok(existsSync(join(appRoot, 'public/_headers')));
   assert.ok(!existsSync(join(appRoot, 'vercel.json')));
+
+  const gitignore = readFileSync(join(appRoot, '..', '..', '.gitignore'), 'utf8');
+  assert.match(gitignore, /!apps\/web\/\.env\.production/);
 });

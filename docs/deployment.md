@@ -57,9 +57,11 @@ The API accepts Render's `postgresql://` connection string and normalizes it to 
 | `NEXT_PUBLIC_API_BASE_URL` | `https://ledger-api.onrender.com` | Browser-visible API origin; embedded during build and not a secret |
 | `OPERATOR_UI_ENABLED` | `false` | Required for anonymous public demo |
 
+The same three public values also live in the tracked `apps/web/.env.production`, which `next build` reads to inline `NEXT_PUBLIC_API_BASE_URL` into the browser bundle. Keep it in sync with the `vars` above.
+
 4. Build with `npm run build:cloudflare`. This runs the existing Next.js Webpack build and adapts `.next` into `.open-next`.
 5. Serve the adapted Worker locally with `npm run preview`, or deploy a non-production Worker with `npm run deploy:preview`. The preview environment explicitly sets `routes: []`, so it cannot inherit or reassign the production custom domain.
-6. Before a cloud build or deploy, use a clean checkout or remove local `.dev.vars`. Wrangler loads that ignored file for local development, and local values must not override the checked-in Render origins during a cloud build.
+6. Before a cloud build or deploy, use a clean checkout, or remove the ignored local overrides `.dev.vars` and `.env.production.local`. Wrangler loads `.dev.vars` for local development, and Next loads `.env.production.local` ahead of the tracked `.env.production`; local values must not override the checked-in Render origins during a cloud build.
 7. Deploy production with `npm run deploy`. The checked-in custom-domain route makes the Worker the frontend hosting path.
 8. **Do not set** on the anonymous public Worker:
    - `DEMO_OPERATOR_TOKEN`, `EVAL_RUN_TOKEN`, `DOCUMENT_INGEST_TOKEN`
@@ -68,7 +70,7 @@ The API accepts Render's `postgresql://` connection string and normalizes it to 
    - Any secret under a `NEXT_PUBLIC_*` name
 9. After deploy, verify Render still has exactly `BACKEND_CORS_ORIGINS=https://ledger.leihuang.me`.
 
-`wrangler.jsonc` `vars` are checked-in, non-encrypted configuration. OpenNext makes them available through `process.env` at Worker runtime and during its build. `NEXT_PUBLIC_API_BASE_URL` is intentionally browser-visible and requires a rebuild after it changes. For local preview, copy `.dev.vars.example` to ignored `.dev.vars`; it contains only local public values.
+`wrangler.jsonc` `vars` are checked-in, non-encrypted configuration that OpenNext exposes through `process.env` at Worker runtime (server-side). The browser cannot read Worker vars, so `NEXT_PUBLIC_API_BASE_URL` is also declared in the tracked `apps/web/.env.production`: `next build` reads that file and inlines the value into the browser bundle. Because the value is baked in at build time, `NEXT_PUBLIC_API_BASE_URL` requires a rebuild after it changes. For local preview, copy `.dev.vars.example` to ignored `.dev.vars` and to ignored `.env.production.local`; both contain only local public values.
 
 Cloudflare secrets are encrypted bindings set with `npx wrangler secret put NAME`, and local secrets belong only in ignored `.dev.vars`. The anonymous Worker needs no secrets, so do not create any for it. A future protected operator surface must be a separate authenticated Worker and security review; never add its tokens to this public Worker or to `NEXT_PUBLIC_*`.
 
@@ -195,6 +197,7 @@ BACKEND_CORS_ORIGINS=http://localhost:8787 \
 cd apps/web
 npm ci
 cp .dev.vars.example .dev.vars
+cp .dev.vars.example .env.production.local
 npm run preview
 
 # In another terminal, from the repository root:
@@ -207,6 +210,8 @@ PLAYWRIGHT_BASE_URL=http://localhost:8787 \
 PLAYWRIGHT_API_BASE_URL=http://localhost:8000 \
   npm run test:e2e:public-demo
 ```
+
+The gitignored `.env.production.local` overrides the tracked `apps/web/.env.production`, so the local preview's browser bundle targets `http://localhost:8000` instead of the Render origin. Remove it (with `.dev.vars`) before a cloud build or deploy.
 
 For a strict local CORS proof, also pass `STRICT_CORS=true EXPECTED_ORIGIN=http://localhost:8787` to `verify-public-demo.sh`. The production value must still be exactly `https://ledger.leihuang.me`.
 
