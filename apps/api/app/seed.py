@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from urllib.parse import urlparse
 
 from sqlalchemy import delete, func, select, update
@@ -199,6 +199,7 @@ def ensure_seeded_if_empty(session: Session) -> SeedResult | None:
         _seed_control_plane_agent(session)
         _seed_phase6_agent_version(session)
         _seed_eval_studio_assets(session)
+        _seed_demo_audit_surfaces(session)
         session.commit()
         return None
 
@@ -248,6 +249,7 @@ def insert_seed_data(session: Session) -> SeedResult:
     _seed_phase6_agent_version(session)
     _seed_eval_studio_assets(session)
     register_builtin_tools(session, commit=False)
+    _seed_demo_audit_surfaces(session)
     session.flush()
 
     counts = seed_counts(session)
@@ -871,6 +873,1020 @@ def _seed_eval_studio_assets(session: Session) -> None:
         )
 
 
+def _seed_demo_audit_surfaces(session: Session) -> None:
+    """Seed public-safe synthetic audit surfaces for the anonymous demo.
+
+    The public demo is read-only (every anonymous mutation returns 403), so
+    completed runs, approvals, and eval results can never be created by an
+    anonymous visitor. Seeding deterministic, evidence-carrying audit artifacts here is
+    what makes the demo's ``/runs``, ``/approvals``, and ``/evals`` surfaces
+    inspectable at all (docs/deployment.md section 0.4). The surfaces only
+    exist in the ``demo`` environment and are idempotent: a demo database
+    always contains the same fixed run/approval/eval rows after every boot.
+    """
+    if get_settings().app_env != "demo":
+        return
+    if session.get(AgentRun, DEMO_AUDIT_ANCHOR_RUN_ID) is not None:
+        return
+
+    from app.agents.service import (
+        PHASE6_AGENT_VERSION_ID,
+        PHASE6_DEGRADED_AGENT_VERSION_ID,
+    )
+
+    anomaly_id = anomaly_id_for_window(
+        revenue_week_windows(DATASET_ANCHOR).current_start
+    )
+    incident_ids = {
+        scenario: incident_id_for_scenario(scenario, anomaly_id)
+        for scenario in SCENARIOS
+    }
+    anchor = DATASET_ANCHOR.replace(tzinfo=None)
+
+    # Completed run on the headline checkout-retry incident: full step timeline,
+    # cited report, local trace, tokens/cost, plus executed and pending actions.
+    checkout_run = _demo_audit_run(
+        session,
+        run_id=DEMO_AUDIT_ANCHOR_RUN_ID,
+        scenario="checkout_retry_regression",
+        incident_id=incident_ids["checkout_retry_regression"],
+        agent_version_id=PHASE6_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=2, minutes=10),
+        completed_at=anchor + timedelta(hours=2, minutes=24),
+        created_at=anchor + timedelta(hours=2),
+        updated_at=anchor + timedelta(hours=2, minutes=24),
+        confidence="high",
+        tokens=(1420, 380),
+        cost=0.021,
+    )
+    _demo_audit_actions(
+        session,
+        run=checkout_run,
+        created_at=anchor + timedelta(hours=2, minutes=20),
+        mode="pending",
+    )
+
+    usage_run = _demo_audit_run(
+        session,
+        run_id="run_f70b3bda3bf443c5",
+        scenario="usage_drop_after_import_outage",
+        incident_id=incident_ids["usage_drop_after_import_outage"],
+        agent_version_id=PHASE6_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=3, minutes=5),
+        completed_at=anchor + timedelta(hours=3, minutes=19),
+        created_at=anchor + timedelta(hours=3),
+        updated_at=anchor + timedelta(hours=3, minutes=19),
+        confidence="medium",
+        tokens=(1180, 310),
+        cost=0.017,
+    )
+    _demo_audit_actions(
+        session,
+        run=usage_run,
+        created_at=anchor + timedelta(hours=3, minutes=15),
+        mode="decided",
+    )
+
+    ambiguous_run = _demo_audit_run(
+        session,
+        run_id="run_da3c0b5dac4140e7",
+        scenario="unknown_root_cause",
+        incident_id=incident_ids["unknown_root_cause"],
+        agent_version_id=PHASE6_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=4, minutes=0),
+        completed_at=anchor + timedelta(hours=4, minutes=16),
+        created_at=anchor + timedelta(hours=4),
+        updated_at=anchor + timedelta(hours=4, minutes=16),
+        confidence="low",
+        tokens=(960, 240),
+        cost=0.013,
+    )
+    _demo_audit_actions(
+        session,
+        run=ambiguous_run,
+        created_at=anchor + timedelta(hours=4, minutes=12),
+        mode="single_pending",
+    )
+
+    # Failed run: the tool step itself fails, so the run history surfaces the
+    # failure instead of stopping at an empty state.
+    _demo_audit_run(
+        session,
+        run_id="run_demo_failed_renewal_probe",
+        scenario="payment_method_expiration",
+        incident_id=incident_ids["payment_method_expiration"],
+        agent_version_id=PHASE6_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=5, minutes=2),
+        completed_at=anchor + timedelta(hours=5, minutes=9),
+        created_at=anchor + timedelta(hours=5),
+        updated_at=anchor + timedelta(hours=5, minutes=9),
+        confidence="low",
+        tokens=(0, 0),
+        cost=0.0,
+        fail_sequence=3,
+    )
+
+    # Dedicated runs backing the eval-regression comparison below. The degraded
+    # candidate has ``search_docs`` disabled, so its run timeline records a
+    # visible ``blocked`` step (permission-scope enforcement, PRD FR-7).
+    eval_good_run = _demo_audit_run(
+        session,
+        run_id="run_eval_demo_phase6",
+        scenario="enterprise_churn_wave",
+        incident_id=incident_ids["enterprise_churn_wave"],
+        agent_version_id=PHASE6_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=6, minutes=0),
+        completed_at=anchor + timedelta(hours=6, minutes=15),
+        created_at=anchor + timedelta(hours=6),
+        updated_at=anchor + timedelta(hours=6, minutes=15),
+        confidence="high",
+        tokens=(1320, 340),
+        cost=0.019,
+    )
+    eval_degraded_run = _demo_audit_run(
+        session,
+        run_id="run_eval_demo_degraded",
+        scenario="support_backlog_export_bug",
+        incident_id=incident_ids["support_backlog_export_bug"],
+        agent_version_id=PHASE6_DEGRADED_AGENT_VERSION_ID,
+        started_at=anchor + timedelta(hours=7, minutes=0),
+        completed_at=anchor + timedelta(hours=7, minutes=18),
+        created_at=anchor + timedelta(hours=7),
+        updated_at=anchor + timedelta(hours=7, minutes=18),
+        confidence="medium",
+        tokens=(1080, 260),
+        cost=0.015,
+        blocked_sequences={5},
+    )
+
+    # The immutable v1 baseline also gets a complete eval run so any published
+    # version pair selected on /evals compares cleanly (the studio defaults to
+    # the first two published versions, and every one must have results).
+    eval_phase1_run = _demo_audit_run(
+        session,
+        run_id="run_eval_demo_phase1",
+        scenario="checkout_retry_regression",
+        incident_id=incident_ids["checkout_retry_regression"],
+        agent_version_id="ledger_v1",
+        started_at=anchor + timedelta(hours=8, minutes=0),
+        completed_at=anchor + timedelta(hours=8, minutes=14),
+        created_at=anchor + timedelta(hours=8),
+        updated_at=anchor + timedelta(hours=8, minutes=14),
+        confidence="high",
+        tokens=(1240, 300),
+        cost=0.018,
+    )
+
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_phase1",
+            agent_run_id=eval_phase1_run.id,
+            agent_version_id="ledger_v1",
+            fail_scenarios=set(),
+            anchor=anchor,
+        )
+    )
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_phase6",
+            agent_run_id=eval_good_run.id,
+            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            fail_scenarios=set(),
+            anchor=anchor,
+        )
+    )
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_degraded",
+            agent_run_id=eval_degraded_run.id,
+            agent_version_id=PHASE6_DEGRADED_AGENT_VERSION_ID,
+            fail_scenarios={"support_backlog_export_bug"},
+            anchor=anchor,
+        )
+    )
+
+
+DEMO_AUDIT_ANCHOR_RUN_ID: Final[str] = "run_f5af975d8f27487f"
+
+# Deterministic knowledge document cited by each scenario's final report,
+# matching the doc query the investigation workflow would retrieve.
+_DEMO_REPORT_DOCS: Final[dict[str, str]] = {
+    "checkout_retry_regression": "kb-runbook-billing-retry-regression",
+    "enterprise_churn_wave": "kb-incident-response-enterprise-churn",
+    "usage_drop_after_import_outage": "kb-troubleshooting-usage-activity-drop",
+    "support_backlog_export_bug": "kb-incident-response-report-export",
+    "payment_method_expiration": "kb-troubleshooting-payment-methods",
+    "unknown_root_cause": "kb-runbook-mrr-drop-investigation",
+}
+
+# Ordered step shape for a completed investigation, mirroring the linear DAG
+# in ``app.agent.workflow`` (``query metrics`` runs two tools, so 8 stages).
+_DEMO_RUN_STAGE_TEMPLATE: Final[tuple[tuple[str, str | None], ...]] = (
+    ("intake", None),
+    ("plan", None),
+    ("query metrics", "query_revenue_metrics"),
+    ("query metrics", "fetch_account_details"),
+    ("search docs", "search_docs"),
+    ("fetch tickets", "fetch_support_tickets"),
+    ("synthesize report", None),
+    ("create mock actions", "create_mock_action"),
+)
+
+
+def _demo_audit_run(
+    session: Session,
+    *,
+    run_id: str,
+    scenario: str,
+    incident_id: str,
+    agent_version_id: str,
+    started_at: datetime,
+    completed_at: datetime,
+    created_at: datetime,
+    updated_at: datetime,
+    confidence: str,
+    tokens: tuple[int, int],
+    cost: float,
+    fail_sequence: int | None = None,
+    blocked_sequences: set[int] | None = None,
+) -> AgentRun:
+    """Create one deterministic completed demo run plus its ordered steps."""
+    report = _demo_audit_report(
+        session,
+        incident_id=incident_id,
+        scenario=scenario,
+        confidence=confidence,
+        completed_at=completed_at,
+        search_docs_blocked=bool(blocked_sequences and 5 in blocked_sequences),
+    )
+    run = AgentRun(
+        id=run_id,
+        incident_id=incident_id,
+        agent_id="ledger",
+        agent_version_id=agent_version_id,
+        status="failed" if fail_sequence is not None else "succeeded",
+        trace_id=f"local-trace-{run_id}",
+        trace_url=f"local://agent-runs/{run_id}/traces/local-trace-{run_id}",
+        trace_provider="local",
+        trace_metadata={
+            "llm_provider": "openai",
+            "llm_model": "gpt-4o-mini",
+            "llm_used": True,
+            "agent_version_id": agent_version_id,
+        },
+        input_payload={"incident_id": incident_id},
+        final_report=None if fail_sequence is not None else report,
+        token_estimate=sum(tokens),
+        prompt_tokens=tokens[0],
+        completion_tokens=tokens[1],
+        cost_estimate_usd=cost,
+        error=(
+            "Database query timed out while fetching revenue metrics."
+            if fail_sequence is not None
+            else None
+        ),
+        started_at=started_at,
+        completed_at=completed_at,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    session.add(run)
+    session.flush()
+    session.add_all(
+        _demo_audit_steps(
+            session,
+            run_id=run_id,
+            incident_id=incident_id,
+            scenario=scenario,
+            started_at=started_at,
+            report=report,
+            fail_sequence=fail_sequence,
+            blocked_sequences=blocked_sequences,
+            created_at=created_at,
+        )
+    )
+    return run
+
+
+def _demo_audit_steps(
+    session: Session,
+    *,
+    run_id: str,
+    incident_id: str,
+    scenario: str,
+    started_at: datetime,
+    report: dict[str, Any],
+    fail_sequence: int | None,
+    blocked_sequences: set[int] | None,
+    created_at: datetime,
+) -> list[AgentRunStep]:
+    incident = session.get(Incident, incident_id)
+    evidence = incident.evidence if incident is not None else {}
+    metric = evidence.get("metric_evidence", {})
+    affected = evidence.get("affected_accounts", [])
+    account_ids = [account["account_id"] for account in affected]
+    invoice_ids = metric.get("invoice_ids") or []
+    source_queries = evidence.get("source_queries") or []
+    doc_id = _DEMO_REPORT_DOCS[scenario]
+    doc_query = f"{incident.title if incident else scenario} {doc_id}"
+
+    steps: list[AgentRunStep] = []
+    for index, (stage, tool_name) in enumerate(_DEMO_RUN_STAGE_TEMPLATE, start=1):
+        status = "succeeded"
+        outputs: dict[str, Any] | None = {}
+        error: str | None = None
+        blocked_reason: str | None = None
+        if fail_sequence == index:
+            status = "failed"
+            outputs = None
+            error = "Database query timed out after 30s while fetching revenue metrics."
+        elif blocked_sequences and index in blocked_sequences:
+            status = "blocked"
+            blocked_reason = "tool_not_enabled"
+            outputs = {
+                "query": doc_query,
+                "results": [],
+                "tool_disabled": True,
+                "tool_disabled_reason": "search_docs was not enabled for this agent version.",
+            }
+        elif stage == "synthesize report":
+            outputs = report
+        else:
+            outputs = _demo_step_outputs(stage, tool_name, incident, evidence)
+
+        step_start = started_at + timedelta(seconds=index * 18)
+        step_end = step_start + timedelta(seconds=11)
+        steps.append(
+            AgentRunStep(
+                id=f"{run_id}_s{index:02d}",
+                run_id=run_id,
+                sequence=index,
+                stage=stage,
+                tool_name=tool_name,
+                status=status,
+                inputs=_demo_step_inputs(
+                    stage=stage,
+                    tool_name=tool_name,
+                    incident_id=incident_id,
+                    account_ids=account_ids,
+                    invoice_ids=invoice_ids,
+                    doc_query=doc_query,
+                    source_queries=source_queries,
+                ),
+                outputs=outputs,
+                error=error,
+                blocked_reason=blocked_reason,
+                started_at=step_start,
+                completed_at=step_end
+                if status in ("succeeded", "blocked")
+                else step_start,
+                created_at=created_at,
+            )
+        )
+        # A failed tool step ends the investigation; later stages never run.
+        if fail_sequence == index:
+            break
+    return steps
+
+
+def _demo_step_inputs(
+    *,
+    stage: str,
+    tool_name: str | None,
+    incident_id: str,
+    account_ids: list[str],
+    invoice_ids: list[str],
+    doc_query: str,
+    source_queries: list[str],
+) -> dict[str, Any]:
+    if stage == "intake":
+        return {"incident_id": incident_id}
+    if stage == "plan":
+        return {
+            "incident_id": incident_id,
+            "enabled_tool_ids": [
+                "query_revenue_metrics",
+                "fetch_account_details",
+                "search_docs",
+                "fetch_support_tickets",
+            ],
+        }
+    if tool_name == "query_revenue_metrics":
+        return {"incident_id": incident_id}
+    if tool_name == "fetch_account_details":
+        return {
+            "account_ids": account_ids,
+            "invoice_ids": invoice_ids,
+            "include_invoices": True,
+        }
+    if tool_name == "search_docs":
+        return {"query": doc_query, "limit": 5}
+    if tool_name == "fetch_support_tickets":
+        return {"account_ids": account_ids, "since": "2026-05-10T00:00:00", "limit": 24}
+    if stage == "synthesize report":
+        return {
+            "incident_id": incident_id,
+            "evidence_sets": [
+                "revenue_metrics",
+                "account_details",
+                "doc_results",
+                "support_tickets",
+            ],
+        }
+    if tool_name == "create_mock_action":
+        return {"run_id": "", "action_types": ["draft_slack_message", "create_task"]}
+    return {"incident_id": incident_id}
+
+
+def _demo_step_outputs(
+    stage: str,
+    tool_name: str | None,
+    incident: Incident | None,
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    if stage == "intake":
+        return {
+            "incident_id": incident.id if incident else "",
+            "title": incident.title if incident else "",
+            "severity": incident.severity if incident else "",
+        }
+    if stage == "plan":
+        return {
+            "objective": "Explain the paid MRR drop, identify affected accounts, and cite evidence.",
+            "hypotheses": [
+                str(item)
+                for item in (
+                    SCENARIOS.get(incident.source_scenario, {}) if incident else {}
+                ).get("false_leads", [])
+            ][:2],
+            "tool_calls": [
+                "query_revenue_metrics",
+                "fetch_account_details",
+                "search_docs",
+                "fetch_support_tickets",
+            ],
+            "disabled_tool_ids": [],
+        }
+    if tool_name == "query_revenue_metrics":
+        metric = evidence.get("metric_evidence", {})
+        return {
+            "incident_id": incident.id if incident else "",
+            "metric_evidence": metric,
+            "affected_account_ids": [
+                account["account_id"]
+                for account in (evidence.get("affected_accounts") or [])
+            ],
+            "invoice_ids": metric.get("invoice_ids") or [],
+            "sql_evidence": [
+                {"query": query} for query in (evidence.get("source_queries") or [])
+            ],
+        }
+    if tool_name == "fetch_account_details":
+        return {
+            "accounts": [
+                {
+                    "account_id": account["account_id"],
+                    "account_name": account["account_name"],
+                    "segment": account["segment"],
+                    "health_score": account["health_score"],
+                    "failed_invoice_ids": account.get("failed_invoice_ids", [])[:2],
+                }
+                for account in (evidence.get("affected_accounts") or [])[:3]
+            ]
+        }
+    if tool_name == "search_docs":
+        return {
+            "query": (evidence.get("source_queries") or [""])[0],
+            "results": [
+                {
+                    "document_id": _DEMO_REPORT_DOCS.get(incident.source_scenario, "")
+                    if incident
+                    else "",
+                    "score": 0.92,
+                }
+            ],
+        }
+    if tool_name == "fetch_support_tickets":
+        return {
+            "tickets": [
+                {"ticket_id": ticket_id, "account_id": "", "category": "billing"}
+                for ticket_id in (evidence.get("support_ticket_ids") or [])[:3]
+            ]
+        }
+    if tool_name == "create_mock_action":
+        return {
+            "action_count": 2,
+            "action_types": ["draft_slack_message", "create_task"],
+            "pending_approval_count": 0,
+        }
+    return {}
+
+
+def _demo_audit_report(
+    session: Session,
+    *,
+    incident_id: str,
+    scenario: str,
+    confidence: str,
+    completed_at: datetime,
+    search_docs_blocked: bool = False,
+) -> dict[str, Any]:
+    """Build a deterministic, evidence-citing final report for a seeded run."""
+    from app.agent.schemas import (
+        InvestigationReport,
+        ReportAffectedAccount,
+        ReportClaim,
+        ReportEvidence,
+    )
+
+    incident = session.get(Incident, incident_id)
+    if incident is None:
+        raise LookupError(f"Missing incident {incident_id} for demo audit seed")
+    evidence = incident.evidence or {}
+    source_queries = evidence.get("source_queries") or []
+    doc_id = _DEMO_REPORT_DOCS[scenario]
+
+    affected_accounts = [
+        ReportAffectedAccount(
+            account_id=account["account_id"],
+            account_name=account["account_name"],
+            segment=account["segment"],
+            health_score=account["health_score"],
+            failed_invoice_cents=account.get("failed_invoice_cents", 0),
+            failed_invoice_ids=account.get("failed_invoice_ids", [])[:3],
+            ticket_ids=(evidence.get("support_ticket_ids") or [])[:2],
+        )
+        for account in (evidence.get("affected_accounts") or [])[:3]
+    ]
+    cited_evidence: list[ReportEvidence] = [
+        ReportEvidence(
+            kind="sql",
+            title="Revenue metrics query",
+            summary=query,
+            reference_id=f"sql:{query[:32]}",
+            source_query=query,
+            citation={
+                "window": evidence.get("metric_evidence", {}).get(
+                    "current_window_start"
+                )
+            },
+        )
+        for query in source_queries[:2]
+    ]
+    if not search_docs_blocked:
+        cited_evidence.append(
+            ReportEvidence(
+                kind="document",
+                title="Incident runbook",
+                summary=f"Retrieved internal runbook {doc_id}.",
+                reference_id=doc_id,
+                citation={"document_id": doc_id},
+            )
+        )
+    for ticket_id in (evidence.get("support_ticket_ids") or [])[:2]:
+        cited_evidence.append(
+            ReportEvidence(
+                kind="ticket",
+                title="Support ticket",
+                summary=f"Support signal {ticket_id} attached to an affected account.",
+                reference_id=ticket_id,
+                citation={"ticket_id": ticket_id},
+            )
+        )
+
+    refs = [item.reference_id for item in cited_evidence]
+    recommended = list(SCENARIOS[scenario].get("recommended_actions") or [])
+    claims = [
+        ReportClaim(
+            category="root_cause",
+            text=str(SCENARIOS[scenario]["root_cause"]),
+            citation_refs=refs[:2],
+        ),
+        ReportClaim(
+            category="impact",
+            text=f"{len(affected_accounts)} affected accounts with failed renewal evidence.",
+            citation_refs=refs,
+        ),
+    ]
+    if recommended:
+        claims.append(
+            ReportClaim(
+                category="recommendation",
+                text="Proposed approval-gated follow-up actions.",
+                citation_refs=[],
+            )
+        )
+    else:
+        claims.append(
+            ReportClaim(
+                category="uncertainty",
+                text="Evidence is insufficient to recommend a concrete repair; further investigation is required.",
+                citation_refs=refs[:2],
+            )
+        )
+    report = InvestigationReport(
+        root_cause=str(SCENARIOS[scenario]["root_cause"]),
+        summary=f"{incident.title}: {SCENARIOS[scenario]['root_cause']}",
+        affected_accounts=affected_accounts,
+        cited_evidence=cited_evidence,
+        claims=claims,
+        confidence=confidence,  # type: ignore[arg-type]
+        next_actions=recommended,
+        generated_at=completed_at,
+    )
+    return report.model_dump(mode="json")
+
+
+def _demo_audit_actions(
+    session: Session,
+    *,
+    run: AgentRun,
+    created_at: datetime,
+    mode: str,
+) -> None:
+    """Seed deterministic mock actions and approval states for a demo run.
+
+    ``mode`` selects the approval-state mix visible on /approvals:
+    - "pending"     -> two executed low-risk actions plus two pending approvals
+    - "decided"     -> one approved and one rejected decision (history view)
+    - "single_pending" -> a single pending approval
+    """
+    base = run.id
+    updated = created_at + timedelta(minutes=4)
+
+    def action(
+        action_id: str,
+        action_type: str,
+        risk_level: str,
+        status: str,
+        title: str,
+        description: str,
+        target: str,
+        payload: dict[str, Any],
+        *,
+        executed_at: datetime | None = None,
+    ) -> MockAction:
+        return MockAction(
+            id=action_id,
+            run_id=run.id,
+            action_type=action_type,
+            risk_level=risk_level,
+            status=status,
+            title=title,
+            description=description,
+            target=target,
+            payload=payload,
+            created_by="ledger-agent",
+            created_at=created_at,
+            updated_at=updated,
+            executed_at=executed_at,
+        )
+
+    def approval(
+        approval_id: str,
+        action_id: str,
+        status: str,
+        risk_level: str,
+        reason: str,
+        *,
+        decided_by: str | None = None,
+        decision_notes: str | None = None,
+        decided_at: datetime | None = None,
+    ) -> ApprovalRequest:
+        return ApprovalRequest(
+            id=approval_id,
+            run_id=run.id,
+            action_id=action_id,
+            status=status,
+            risk_level=risk_level,
+            reason=reason,
+            requested_by="ledger-agent",
+            decided_by=decided_by,
+            decision_notes=decision_notes,
+            created_at=created_at,
+            decided_at=decided_at,
+        )
+
+    def audit(
+        event_id: str,
+        action_id: str,
+        approval_id: str | None,
+        event_type: str,
+        actor: str,
+        notes: str | None,
+        event_time: datetime,
+    ) -> ActionAuditEvent:
+        return ActionAuditEvent(
+            id=event_id,
+            run_id=run.id,
+            action_id=action_id,
+            approval_request_id=approval_id,
+            event_type=event_type,
+            actor=actor,
+            notes=notes,
+            event_metadata={},
+            created_at=event_time,
+        )
+
+    if mode == "pending":
+        low_slack = action(
+            f"{base}_act_slack",
+            "draft_slack_message",
+            "low",
+            "executed",
+            "Notify billing on-call about the retry regression",
+            "Draft a Slack message to billing on-call summarizing affected accounts.",
+            "slack:#billing-oncall",
+            {"channel": "#billing-oncall"},
+            executed_at=updated,
+        )
+        low_task = action(
+            f"{base}_act_task",
+            "create_task",
+            "low",
+            "executed",
+            "Create a task to monitor renewal retries",
+            "Track the retry webhook repair in the operations queue.",
+            "ops:ledger-queue",
+            {"assignee": "billing-ops"},
+            executed_at=updated,
+        )
+        email_action = action(
+            f"{base}_act_email",
+            "draft_customer_email",
+            "high",
+            "pending_approval",
+            "Draft renewal outreach to affected billing owners",
+            "Explain the retry repair and next billing date to affected customers.",
+            "email:customers",
+            {"template": "renewal-retry"},
+        )
+        note_action = action(
+            f"{base}_act_note",
+            "update_account_note",
+            "high",
+            "pending_approval",
+            "Attach incident note to affected accounts",
+            "Record the MRR-drop incident link on each affected account.",
+            "accounts:affected",
+            {"note": "incident-linked"},
+        )
+        email_approval = approval(
+            f"{base}_apr_email",
+            email_action.id,
+            "pending",
+            "high",
+            "High-risk customer outreach requires an operator decision.",
+        )
+        note_approval = approval(
+            f"{base}_apr_note",
+            note_action.id,
+            "pending",
+            "high",
+            "Writing account notes requires an operator decision.",
+        )
+        session.add_all(
+            [
+                low_slack,
+                low_task,
+                email_action,
+                note_action,
+                email_approval,
+                note_approval,
+                audit(
+                    f"{base}_aud_1",
+                    low_slack.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_2",
+                    low_task.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_3",
+                    email_action.id,
+                    email_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_4",
+                    note_action.id,
+                    note_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+            ]
+        )
+        return
+
+    if mode == "decided":
+        approved_action = action(
+            f"{base}_act_email",
+            "draft_customer_email",
+            "high",
+            "executed",
+            "Send renewal outreach after approval",
+            "Approved customer email drafted for the import-outage incident.",
+            "email:customers",
+            {"template": "import-outage"},
+            executed_at=updated + timedelta(minutes=1),
+        )
+        rejected_action = action(
+            f"{base}_act_note",
+            "update_account_note",
+            "high",
+            "rejected",
+            "Attach account note about import instability",
+            "Proposed account-note update rejected by the operator.",
+            "accounts:affected",
+            {"note": "import-outage"},
+        )
+        approved_approval = approval(
+            f"{base}_apr_email",
+            approved_action.id,
+            "approved",
+            "high",
+            "Customer outreach for affected accounts.",
+            decided_by="demo-operator",
+            decision_notes="Approved with default template.",
+            decided_at=updated,
+        )
+        rejected_approval = approval(
+            f"{base}_apr_note",
+            rejected_action.id,
+            "rejected",
+            "high",
+            "Account-note update proposed by the agent.",
+            decided_by="demo-operator",
+            decision_notes="Rejected; note content needs review.",
+            decided_at=updated,
+        )
+        session.add_all(
+            [
+                approved_action,
+                rejected_action,
+                approved_approval,
+                rejected_approval,
+                audit(
+                    f"{base}_aud_1",
+                    approved_action.id,
+                    approved_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_2",
+                    approved_action.id,
+                    approved_approval.id,
+                    "approved",
+                    "demo-operator",
+                    "Approved with default template.",
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_3",
+                    approved_action.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated + timedelta(minutes=1),
+                ),
+                audit(
+                    f"{base}_aud_4",
+                    rejected_action.id,
+                    rejected_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_5",
+                    rejected_action.id,
+                    rejected_approval.id,
+                    "rejected",
+                    "demo-operator",
+                    "Rejected; note content needs review.",
+                    updated,
+                ),
+            ]
+        )
+        return
+
+    # mode == "single_pending"
+    pending_action = action(
+        f"{base}_act_email",
+        "draft_customer_email",
+        "high",
+        "pending_approval",
+        "Draft uncertainty follow-up to affected accounts",
+        "Propose a follow-up acknowledging the mixed renewal signals.",
+        "email:customers",
+        {"template": "uncertainty-followup"},
+    )
+    pending_approval = approval(
+        f"{base}_apr_email",
+        pending_action.id,
+        "pending",
+        "high",
+        "Customer follow-up for the ambiguous root cause case.",
+    )
+    session.add_all(
+        [
+            pending_action,
+            pending_approval,
+            audit(
+                f"{base}_aud_1",
+                pending_action.id,
+                pending_approval.id,
+                "proposed",
+                "ledger-agent",
+                None,
+                created_at,
+            ),
+        ]
+    )
+
+
+def _demo_audit_eval_results(
+    session: Session,
+    *,
+    eval_run_id: str,
+    agent_run_id: str,
+    agent_version_id: str,
+    fail_scenarios: set[str],
+    anchor: datetime,
+) -> list[EvalResult]:
+    """Seed one complete eval-regression run for a candidate version."""
+    case_ids = session.scalars(select(EvalCase.id).order_by(EvalCase.id)).all()
+    results: list[EvalResult] = []
+    for case_id in case_ids:
+        case = session.get(EvalCase, case_id)
+        passed = case.scenario not in fail_scenarios
+        started_at = anchor + timedelta(hours=8)
+        completed_at = started_at + timedelta(seconds=2)
+        results.append(
+            EvalResult(
+                id=f"{eval_run_id}_{case_id}",
+                eval_run_id=eval_run_id,
+                eval_case_id=case_id,
+                agent_run_id=agent_run_id,
+                agent_version_id=agent_version_id,
+                dataset_id="mrr-drop-suite",
+                scenario=case.scenario,
+                status="passed" if passed else "failed",
+                passed=passed,
+                root_cause_score=0.92 if passed else 0.41,
+                citation_quality_score=0.88 if passed else 0.30,
+                action_safety_score=1.0,
+                latency_ms=1800 if passed else 2400,
+                cost_estimate_usd=0.012 if passed else 0.008,
+                expected_root_cause=case.expected_root_cause,
+                actual_root_cause=(
+                    case.expected_root_cause
+                    if passed
+                    else "Missing document evidence; root cause unconfirmed."
+                ),
+                expected_evidence_types=list(case.expected_evidence_types),
+                observed_evidence_types=(
+                    list(case.expected_evidence_types) if passed else ["sql", "ticket"]
+                ),
+                failure_reasons=(
+                    [] if passed else ["expected_document_evidence_missing"]
+                ),
+                example_output={
+                    "run_id": agent_run_id,
+                    "root_cause": case.expected_root_cause if passed else None,
+                    "confidence": "high" if passed else "low",
+                },
+                started_at=started_at,
+                completed_at=completed_at,
+                created_at=started_at,
+            )
+        )
+    return results
+
+
 def _seed_phase6_agent_version(session: Session) -> None:
     """Ensure fresh or explicit reset seeds reproduce migration 0015's snapshot."""
     from app.agents.service import PHASE6_AGENT_VERSION_ID, PHASE6_ENABLED_TOOL_IDS
@@ -1192,6 +2208,9 @@ def seed_counts(session: Session) -> dict[str, int]:
         "eval_results": EvalResult,
         "agent_runs": AgentRun,
         "agent_run_steps": AgentRunStep,
+        "mock_actions": MockAction,
+        "approval_requests": ApprovalRequest,
+        "action_audit_events": ActionAuditEvent,
         "knowledge_documents": KnowledgeDocument,
         "knowledge_document_chunks": KnowledgeDocumentChunk,
         "agents": Agent,
