@@ -105,7 +105,7 @@ ffmpeg -y -i docs/assets/ledger-walkthrough.webm -filter_complex "\
 
 If the full recording’s scene timings change, re-map source ranges before re-running, then retarget cue times in `ledger-walkthrough-short.vtt`.
 
-Optional: burn captions for a shareable file (does not replace the sidecar VTT):
+Optional: burn captions for a shareable file (does not replace the sidecar VTT). This needs an ffmpeg build compiled with libass (the `subtitles` filter); the default Homebrew ffmpeg formula does not include libass, so confirm it is available first with `ffmpeg -filters | grep subtitles`:
 
 ```bash
 ffmpeg -y -i docs/assets/ledger-walkthrough-short.webm \
@@ -113,6 +113,8 @@ ffmpeg -y -i docs/assets/ledger-walkthrough-short.webm \
   -c:v libvpx -b:v 1M -auto-alt-ref 0 \
   docs/assets/ledger-walkthrough-short-captioned.webm
 ```
+
+Keep the WebVTT sidecar as the default caption delivery; burning captions is only for a shareable video.
 
 ## Optional human voiceover (separate artifact)
 
