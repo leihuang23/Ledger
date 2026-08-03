@@ -4,7 +4,7 @@ This repository is for Ledger, a production-shaped SaaS revenue and support oper
 
 ## Critical Product Read
 
-The project idea is strong because it demonstrates the hard parts of agentic software that technical reviewers care about: cross-source investigation, evidence-backed claims, constrained actions, run traces, and evals. The demo prompt, "MRR dropped this week," is a good anchor because it is concrete, business-relevant, and naturally requires analytics plus support context.
+The project idea is strong because it demonstrates the hard parts of agentic software that engineering teams and technical reviewers actually care about: cross-source investigation, evidence-backed claims, constrained actions, run traces, and evals. The demo prompt, "MRR dropped this week," is a good anchor because it is concrete, business-relevant, and naturally requires analytics plus support context.
 
 The main risk is scope inflation. The recommended stack is credible but heavy for a first pass: Next.js, FastAPI, PostgreSQL, pgvector, Redis, LangGraph, provider-backed observability, Celery, Docker, and split deployment can easily become infrastructure theater before the agent proves anything. Prefer a narrow, verified system over a broad, half-working one.
 
@@ -15,7 +15,7 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 ## Product Guardrails
 
 - Optimize for a reviewer evaluating engineering judgment, not for a flashy agent demo.
-- Honest positioning: Ledger is a production-shaped demonstration system that shows investigation, cited evidence, auditable run traces, and approval-gated risky actions. Disclose synthetic data, optional Stripe test-mode sandbox evidence, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval. Do not imply merchant adoption or live commerce.
+- Honest positioning: Ledger is a production-shaped system that demonstrates investigation, cited evidence, auditable run traces, and approval-gated risky actions. Disclose synthetic data, optional Stripe test-mode sandbox evidence, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval. Do not imply merchant adoption or live commerce.
 - Keep the first version focused on the primary investigation loop: anomaly -> evidence gathering -> root cause -> affected accounts -> recommended actions -> approval-gated drafts.
 - Every important claim in the UI, API, final report, and eval output must be backed by cited SQL results, tickets, documents, incident records, or (when present) Stripe-derived billing evidence already normalized into Ledger records.
 - Never let the agent perform irreversible or external write actions without explicit approval. In the first version, all Slack, email, CRM, and task actions must be mocks.
@@ -28,7 +28,7 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 
 Stripe is **in scope only** as a narrow test-mode evidence adapter (Stripe evidence boundary) as defined in this section. It is not a general merchant platform.
 
-Allowed (when implemented in a later slice):
+Allowed (the adapter is implemented in `apps/api/app/stripe_adapter/`):
 
 - Test-mode only; no live credentials or real customer data.
 - Customers, subscriptions, and invoices ingestion into existing Ledger models.
@@ -45,6 +45,8 @@ Forbidden unless this file is updated again:
 - Exposing Stripe secrets via public client config, `NEXT_PUBLIC_*`, or the anonymous demo.
 
 Preserve existing evidence, eval, approval, audit, and demo-token gates whether or not Stripe is configured. The anonymous public demo remains read-only (`APP_ENV=demo` and operator gates unchanged).
+
+Implementation lives in `apps/api/app/stripe_adapter/` (`POST /stripe/webhook`, `POST /stripe/reconcile`, status/events/ingestion-log routes). Optional env: `STRIPE_API_KEY` (`sk_test_` only), `STRIPE_WEBHOOK_SECRET`. See `docs/deployment.md` and `tests/test_stripe_adapter.py`.
 
 ## Public demo deployment
 
@@ -73,7 +75,7 @@ If implementation effort grows, cut optional infrastructure before cutting evide
 - Store agent run steps with enough detail to replay or audit the investigation without reading logs.
 - Keep provider abstraction minimal until there is real pressure to support multiple LLM providers.
 - Do not add dependencies only because they are listed in a product brief or plan. Add each dependency when a real implementation need appears.
-- The current backend is organized by domain under `apps/api/app/`: `accounts`, `agent`, `agents`, `approvals`, `core`, `dashboard`, `db`, `evals`, `health`, `incidents`, `knowledge`, `llm`, `metrics`, `runs`, `support`, and `tools`. The Next.js frontend under `apps/web/app/` mirrors the operational surfaces: dashboard, incidents, agent runs, approvals, accounts, support tickets, knowledge search, evals, and the control-plane pages (agents, tools, runs, dashboard).
+- The current backend is organized by domain under `apps/api/app/`: `accounts`, `agent`, `agents`, `approvals`, `core`, `dashboard`, `db`, `evals`, `health`, `incidents`, `knowledge`, `llm`, `metrics`, `runs`, `stripe_adapter`, `support`, and `tools`. The Next.js frontend under `apps/web/app/` mirrors the operational surfaces: dashboard, incidents, agent runs, approvals, accounts, support tickets, knowledge search, evals, and the control-plane pages (agents, tools, runs, dashboard).
 - LangGraph is the recommended orchestrator. The MVP uses a fixed linear investigation DAG built with LangGraph's `StateGraph` in `apps/api/app/agent/workflow.py` (compiled per run invocation, no dynamic branching). Do not add dynamic branching or loops to the graph unless a real feature requires it; keep the orchestration simple and auditable.
 
 ## Data And Scenario Rules

@@ -1,6 +1,6 @@
 # Human-Assisted Follow-Ups
 
-These items need credentials, external services, or an operator-owned deployment target. They are not required for the local MVP behavior, but they are useful before a public demo release.
+These items need credentials, external services, or an operator-owned deployment target. They are not required for the local PRD MVP behavior, but they are useful before a public engineering review.
 
 ## Credential Setup Manual
 
@@ -131,6 +131,14 @@ EVAL_RUN_TOKEN=<random-token-for-post-evals-run>
 
 `EVAL_RUN_TOKEN` must be available to both API and web if the reviewer should run
 the eval suite from `/evals`. `DOCUMENT_INGEST_TOKEN` is API-only.
+
+### Stripe Test-Mode Evidence Adapter
+
+Optional. Set `STRIPE_API_KEY` (`sk_test_...` only; live keys are rejected at
+settings load) and `STRIPE_WEBHOOK_SECRET` in the API process to enable signed
+webhook ingest and bounded reconciliation. Routes are disabled for
+`APP_ENV=demo` and secrets must never use a `NEXT_PUBLIC_` prefix. Full setup
+and endpoint reference: [docs/deployment.md](deployment.md#optional-stripe-test-mode-evidence-adapter).
 
 ## Hosted Observability
 

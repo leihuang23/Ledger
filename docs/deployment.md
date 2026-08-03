@@ -130,6 +130,32 @@ The default deployment uses deterministic local diagnosis, local embeddings, and
 
 Keep `OBSERVABILITY_FULL_PAYLOADS=false` unless exporting the synthetic evidence payloads is an explicit decision. Stripe test-mode evidence (if added later) stays off the anonymous public deployment per `prd.md`.
 
+### Optional Stripe test-mode evidence adapter
+
+Stripe is an **optional** sandbox evidence source, not a payments product surface. Leave unset for the public demo.
+
+| Variable | Purpose |
+| --- | --- |
+| `STRIPE_API_KEY` | Test-mode secret only (`sk_test_...`). Live keys are rejected at settings load. |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret (`whsec_...`) for `POST /stripe/webhook`. |
+| `STRIPE_WEBHOOK_TOLERANCE_SECONDS` | Signature timestamp tolerance (default `300`). |
+
+Endpoints (all routes except `GET /stripe/status` are disabled when `APP_ENV=demo`; `POST /stripe/webhook` and `POST /stripe/reconcile` also fail closed when the required secret is unset):
+
+- `GET /stripe/status` - whether the adapter is configured/enabled
+- `POST /stripe/webhook` - signed event ingest (raw body signature verification, event-id idempotency, out-of-order re-fetch when an API key is present)
+- `POST /stripe/reconcile` - operator-gated bounded repair of missed sandbox objects (`X-Demo-Operator-Token`)
+- `GET /stripe/events` / `GET /stripe/ingestion-logs` - operator-gated visibility for processed/unsupported/failed events
+
+Local CI tests mock the Stripe client. To exercise a real Test Clock against your sandbox:
+
+```bash
+export STRIPE_API_KEY=sk_test_...
+cd apps/api && pytest -q tests/test_stripe_adapter.py -m stripe_live
+```
+
+Never put Stripe secrets in `NEXT_PUBLIC_*`, the anonymous public demo, or the git tree.
+
 ## 4. Post-deploy verification
 
 Prefer `./scripts/verify-public-demo.sh` (section 0.4). Manual checklist without printing tokens:
@@ -182,3 +208,4 @@ The complete no-secret samples live in `.env.example`, `.env.public-demo.example
 - `BACKEND_CORS_ORIGINS` lists exact trusted browser origins (for public demo: `https://ledger.leihuang.me`).
 - `RATE_LIMIT_MUTATIONS_PER_MINUTE` and `RATE_LIMIT_SEARCH_PER_MINUTE` bound public traffic.
 - `LOG_FORMAT=json` is recommended for hosted log ingestion.
+- `STRIPE_API_KEY` / `STRIPE_WEBHOOK_SECRET` enable the optional test-mode evidence adapter; omit on the anonymous public demo (`APP_ENV=demo` disables the routes regardless).
