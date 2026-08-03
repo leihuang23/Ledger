@@ -1,4 +1,4 @@
-# Ledger portfolio launch checklist
+# Ledger launch checklist
 
 **Purpose:** Launch acceptance criteria checklist plus a recorded green baseline. Checkboxes mark items that are true in the current product code and tests.
 
@@ -6,7 +6,7 @@
 
 **Honest product positioning (use consistently):**
 
-> Ledger is a production-shaped portfolio system built to demonstrate how an AI agent can investigate revenue anomalies, cite evidence, expose an auditable run trace, and gate risky actions.
+> Ledger is a production-shaped system that demonstrates how an AI agent can investigate revenue anomalies, cite evidence, expose an auditable run trace, and gate risky actions.
 
 Disclose synthetic data, optional sandbox Stripe, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval.
 
@@ -18,7 +18,7 @@ Captured from the isolated worktree on **2026-08-03** (UTC `2026-08-03T03:29:16Z
 
 | Command | Working directory | Result |
 | --- | --- | --- |
-| Portfolio + core investigation suites (see command below) | `apps/api` | **123 passed**, 16 warnings (Python 3.14 deprecations in slowapi) |
+| Investigation + core suites (see command below) | `apps/api` | **123 passed**, 16 warnings (Python 3.14 deprecations in slowapi) |
 | Full API suite `python -m pytest -q` | `apps/api` | **399 passed, 2 skipped, 7 failed** |
 | Web unit/contract `npm test` | `apps/web` | **20 passed** |
 | Web lint/typecheck `npm run lint` (`next typegen && tsc --noEmit`) | `apps/web` | **passed** (exit 0) |
@@ -26,7 +26,7 @@ Captured from the isolated worktree on **2026-08-03** (UTC `2026-08-03T03:29:16Z
 | Deterministic eval CLI `python -m app.evals.runner --json` | `apps/api` | **not runnable here** - needs Postgres with role/db `ledger` |
 | Ruff | `apps/api` | **not installed** in the local `.venv` created for this baseline (`ruff` binary absent; no documented root `ruff` script in this tree) |
 
-### Portfolio + core suite command
+### Investigation + core suite command
 
 ```bash
 cd apps/api
@@ -62,7 +62,7 @@ A host Postgres process was already listening on port 5432 without the `ledger` 
 6. `tests/test_health.py::test_ready_returns_503_when_redis_is_unreachable`
 7. `tests/test_health.py::test_ready_returns_503_when_redis_from_url_fails`
 
-**Baseline interpretation:** portfolio-related and core investigation suites are green without external Postgres. Full suite and eval CLI need a Ledger-compatible Postgres (and Redis for readiness paths) - e.g. `docker compose up` with no conflicting host Postgres on 5432.
+**Baseline interpretation:** investigation-related and core suites are green without external Postgres. Full suite and eval CLI need a Ledger-compatible Postgres (and Redis for readiness paths) - e.g. `docker compose up` with no conflicting host Postgres on 5432.
 
 Prior Phase 6 local sign-off (historical, not re-run here) remains documented in `docs/phase-6-signoff.md` (including deterministic eval comparison notes). This Day 1 baseline does **not** invent new eval scores.
 
@@ -78,7 +78,7 @@ Checkboxes mark **already true** from current product code, seed design, and thi
 - [ ] At least four of five required eval scenarios identify the intended root cause. (Not re-verified in this environment; eval CLI blocked on Postgres. Re-run `python -m app.evals.runner --json` against a Ledger DB before claiming.)
 - [x] Every major report claim cites retrieved SQL, ticket, document, incident, or Stripe-derived evidence. (Product contract + investigation/eval tests; optional Stripe-derived path covered by `tests/test_stripe_adapter.py` citation case.)
 - [x] Risky actions remain blocked until explicitly approved or rejected. (Approval suite green in core baseline.)
-- [x] Every run exposes ordered steps, trace information, token/cost estimates, failures, and a final report. (Investigation / portfolio package tests green.)
+- [x] Every run exposes ordered steps, trace information, token/cost estimates, failures, and a final report. (Investigation / package tests green.)
 - [x] Stripe sandbox events are authenticated, idempotent, reconcilable, and tested end to end. (`POST /stripe/webhook`, `POST /stripe/reconcile`, signature/idempotency/out-of-order/reconcile tests; live Test Clock path opt-in via `STRIPE_API_KEY` + `-m stripe_live`.)
 - [x] No real customer data or live Stripe credentials are present. (Synthetic seed; no Stripe credentials in repo; live keys rejected at settings load; adapter disabled when `APP_ENV=demo`.)
 
@@ -91,14 +91,14 @@ Checkboxes mark **already true** from current product code, seed design, and thi
 - [ ] Desktop and mobile browser smoke tests pass with no obvious visual defects.
 - [ ] Security headers, CORS, readiness, and secret-exposure checks pass.
 
-### Portfolio package
+### Public package
 
 - [ ] `leihuang.me` uses the approved positioning and project order.
 - [ ] The Ledger case study supports both a 60-second scan and a technical deep dive.
 - [ ] The README links to the demo, case study, and walkthrough.
 - [x] The narrated walkthrough lasts two to three minutes and includes captions. (Existing `docs/assets/ledger-walkthrough.webm`; Phase 6 sign-off recorded ~195.8s. Captions should be re-confirmed at publish.)
 - [ ] Synthetic data, sandbox integration, and known limitations are disclosed. (PRD/AGENTS disclosure landed Day 1; public README/case-study wording still to align at publish.)
-- [x] No public resume or sensitive contact information is exposed in this repository package. (No resume/phone/street address published here as product assets.)
+- [x] No personal or sensitive contact information is exposed in this repository package. (No phone/street address published here as product assets.)
 - [ ] All public claims match currently verified behavior.
 
 ### Day 1 contract work
@@ -130,4 +130,4 @@ Regenerate via `cd apps/web && npm run portfolio:assets` when UI changes (see `d
 - No Stripe code was in the Day 1 baseline; the test-mode evidence adapter (`app/stripe_adapter/`, webhooks, credentials, Test Clock scenario) is implemented on this branch and its PR is in review.
 - No public deploy changes; demo safety topology (`APP_ENV=demo`, operator gates) unchanged.
 - No invented eval pass rates from this environment.
-- Portfolio launch plan file may live outside this branch until tracked separately; this checklist is the Day 1 tracked artifact.
+- Additional planning notes may live outside this branch until tracked separately; this checklist is the Day 1 tracked artifact.

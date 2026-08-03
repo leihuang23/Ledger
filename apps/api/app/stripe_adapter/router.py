@@ -174,7 +174,8 @@ def stripe_reconcile(
             db, client, limit=request.limit
         )
     finally:
-        client.close()
+        if hasattr(client, "close"):
+            client.close()
 
     return ReconcileResponse(
         run_id=result.run_id,

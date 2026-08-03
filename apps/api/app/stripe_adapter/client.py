@@ -120,6 +120,9 @@ class InMemoryStripeClient:
     def list_invoices(self, *, limit: int = 100) -> list[dict[str, Any]]:
         return list(self.invoices.values())[:limit]
 
+    def close(self) -> None:
+        """No-op: in-memory fixtures hold no network resources."""
+
 
 def build_stripe_client(api_key: str | None) -> HttpStripeClient | None:
     if not api_key:

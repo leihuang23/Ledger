@@ -726,6 +726,65 @@ def test_reconcile_survives_per_object_errors(
         assert run.errors == result.errors
 
 
+def test_reconcile_http_route_supports_in_memory_client(
+    session_factory: Callable[[], Session],
+    stripe_settings: Settings,
+    monkeypatch,
+) -> None:
+    """POST /stripe/reconcile must not 500 when the client has no close().
+
+    Regression: the reconcile HTTP route called ``client.close()``
+    unconditionally while the webhook route guards with ``hasattr``, so driving
+    the route with the in-memory fixture client (no ``close``) raised
+    AttributeError. The route must treat close as optional and still repair a
+    missed webhook.
+    """
+    customer = _customer("cus_http_reconcile")
+    subscription = _subscription(
+        "sub_http_reconcile", customer_id="cus_http_reconcile", status="active"
+    )
+    invoice = _invoice(
+        "in_http_reconcile_fail",
+        customer_id="cus_http_reconcile",
+        subscription_id="sub_http_reconcile",
+        status="open",
+        failure_reason="card_declined",
+    )
+    memory = InMemoryStripeClient(
+        customers={customer["id"]: customer},
+        subscriptions={subscription["id"]: subscription},
+        invoices={invoice["id"]: invoice},
+    )
+    monkeypatch.setattr(
+        "app.stripe_adapter.router.build_stripe_client",
+        lambda api_key: memory,
+    )
+
+    def override_get_db() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post("/stripe/reconcile", json={"limit": 10})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["customers_seen"] == 1
+    assert payload["subscriptions_seen"] == 1
+    assert payload["invoices_seen"] == 1
+    assert payload["repaired"] >= 3
+
+    with session_factory() as session:
+        run = session.get(StripeReconciliationRun, payload["run_id"])
+        assert run is not None
+        assert run.status == "completed"
+
+
 def test_failed_renewal_simulation_maps_test_clock_style_state(
     session_factory: Callable[[], Session],
 ) -> None:

@@ -18,7 +18,7 @@
 
 ## PRD: Ledger
 
-Ledger is a production-shaped portfolio system built to demonstrate how an AI agent can investigate revenue anomalies, cite evidence, expose an auditable run trace, and gate risky actions.
+Ledger is a production-shaped system that demonstrates how an AI agent can investigate revenue anomalies, cite evidence, expose an auditable run trace, and gate risky actions.
 
 It is also a forensic revenue and support operations agent for SaaS-shaped data: the product story is real engineering judgment on synthetic (and optional sandbox) evidence, not merchant adoption or live commerce.
 
@@ -33,9 +33,9 @@ Most AI agent demos are too toy-like. This project should prove that you can bui
 ### Target User
 
 - Founder, operations lead, support lead, product manager, or revenue operations analyst at a SaaS company.
-- Hiring managers and technical reviewers evaluating evidence-backed agent engineering.
+- Technical reviewers and engineering evaluators assessing evidence-backed agent engineering.
 
-### Honest portfolio disclosure
+### Honest public disclosure
 
 - Business records and incident scenarios are synthetic unless explicitly labeled as Stripe test-mode sandbox data.
 - Stripe, when present, operates only in test mode as an optional evidence source.
@@ -50,7 +50,7 @@ Most AI agent demos are too toy-like. This project should prove that you can bui
 3. As a support lead, I want the agent to connect account impact with support tickets, so that follow-up is targeted.
 4. As a reviewer, I want every claim to include citations or queried evidence, so that I can trust the report.
 5. As an approver, I want risky actions to require approval, so that the agent cannot act beyond its authority.
-6. As a hiring manager, I want to see traces, evals, and failure cases, so that I can judge engineering maturity.
+6. As a technical reviewer, I want to see traces, evals, and failure cases, so that I can judge engineering maturity.
 
 ### In Scope
 
