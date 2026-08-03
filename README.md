@@ -175,7 +175,7 @@ Backend-only / frontend-only / Celery / embedding notes: see [docs/project-1-run
 
 ---
 
-## Verification (10-minute path)
+## Verification
 
 ```bash
 # Backend behavior + contracts
@@ -191,7 +191,7 @@ cd apps/web && npm test && npm run lint && npm run build
 cd apps/web && npm run test:e2e
 ```
 
-Quick smoke after `docker compose up --build`:
+**10-minute path** - quick smoke after `docker compose up --build`:
 
 ```bash
 curl -s http://localhost:8000/ready
