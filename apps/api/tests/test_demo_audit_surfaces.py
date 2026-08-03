@@ -40,7 +40,7 @@ def test_demo_seed_materializes_runs_approvals_and_eval_regressions(
     """A demo-environment seed makes /runs, /approvals, and /evals inspectable.
 
     The public demo is read-only (anonymous mutations return 403), so seeded
-    audit surfaces are the only way a recruiter can inspect runs with ordered
+    audit surfaces are the only way an anonymous visitor can inspect runs with ordered
     steps/citations/traces/costs, approval states, and eval regressions."""
     monkeypatch.setenv("APP_ENV", "demo")
     get_settings.cache_clear()

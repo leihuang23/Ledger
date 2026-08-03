@@ -46,7 +46,7 @@ Forbidden unless the PRD is updated again:
 
 Preserve existing evidence, eval, approval, audit, and demo-token gates whether or not Stripe is configured. The anonymous public demo remains read-only (`APP_ENV=demo` and operator gates unchanged).
 
-## Public portfolio deployment
+## Public demo deployment
 
 - Topology and captain checklist: `docs/deployment.md` (Vercel `apps/web` + Render `render.yaml`; target origin `https://ledger.leihuang.me`).
 - Local anonymous proof (no cloud login): `.env.public-demo.example`, `scripts/verify-public-demo.sh`, and `apps/web` `npm run test:e2e:public-demo` with `PLAYWRIGHT_EXPECT_READ_ONLY=true`.

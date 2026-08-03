@@ -877,8 +877,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
     """Seed public-safe synthetic audit surfaces for the anonymous demo.
 
     The public demo is read-only (every anonymous mutation returns 403), so
-    completed runs, approvals, and eval results can never be created by a
-    recruiter. Seeding deterministic, evidence-carrying audit artifacts here is
+    completed runs, approvals, and eval results can never be created by an
+    anonymous visitor. Seeding deterministic, evidence-carrying audit artifacts here is
     what makes the demo's ``/runs``, ``/approvals``, and ``/evals`` surfaces
     inspectable at all (docs/deployment.md section 0.4). The surfaces only
     exist in the ``demo`` environment and are idempotent: a demo database
@@ -1465,7 +1465,7 @@ def _demo_audit_actions(
 ) -> None:
     """Seed deterministic mock actions and approval states for a demo run.
 
-    ``mode`` selects the approval-state mix a recruiter sees on /approvals:
+    ``mode`` selects the approval-state mix visible on /approvals:
     - "pending"     -> two executed low-risk actions plus two pending approvals
     - "decided"     -> one approved and one rejected decision (history view)
     - "single_pending" -> a single pending approval

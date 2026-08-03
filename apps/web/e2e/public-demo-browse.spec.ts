@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Anonymous recruiter browse path for the public portfolio demo.
+ * Anonymous browse path for the public read-only demo.
  * Enabled only when PLAYWRIGHT_EXPECT_READ_ONLY=true (OPERATOR_UI_ENABLED=false).
  */
-test.describe('public portfolio browse', () => {
+test.describe('public demo browse', () => {
   test.skip(
     process.env.PLAYWRIGHT_EXPECT_READ_ONLY !== 'true',
     'requires a web deployment with OPERATOR_UI_ENABLED=false',
   );
 
-  test('recruiter can inspect seeded evidence surfaces without credentials', async ({ page }) => {
+  test('anonymous visitor can inspect seeded evidence surfaces', async ({ page }) => {
     test.setTimeout(120000);
 
     await page.goto('/');

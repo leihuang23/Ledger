@@ -15,7 +15,7 @@
     "test": "node --experimental-strip-types --test lib/resolveApiBaseUrl.test.ts lib/traceLink.test.ts app/reviewerFlowSmoke.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --reporter=dot",
-    "test:e2e:public-demo": "playwright test e2e/read-only-demo.spec.ts e2e/public-portfolio-browse.spec.ts",
+    "test:e2e:public-demo": "playwright test e2e/read-only-demo.spec.ts e2e/public-demo-browse.spec.ts",
     "portfolio:assets": "node scripts/capture-portfolio-assets.mjs"
   },
   "dependencies": {

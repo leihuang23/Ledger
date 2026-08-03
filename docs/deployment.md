@@ -2,13 +2,13 @@
 
 The tracked production-shaped topology uses Vercel for the Next.js frontend and a Render Blueprint for the FastAPI API, Celery worker, Postgres/pgvector, and Redis-compatible Key Value service. It is a deployment template, not proof that a public environment currently exists.
 
-**Public portfolio target origin:** `https://ledger.leihuang.me` (frontend) with the Render web service as the API origin (example hostname `https://ledger-api.onrender.com` after Blueprint create). If DNS uses a different hostname, update this document, `BACKEND_CORS_ORIGINS`, and the Vercel custom domain together so they stay exact matches.
+**Public demo target origin:** `https://ledger.leihuang.me` (frontend) with the Render web service as the API origin (example hostname `https://ledger-api.onrender.com` after Blueprint create). If DNS uses a different hostname, update this document, `BACKEND_CORS_ORIGINS`, and the Vercel custom domain together so they stay exact matches.
 
 The provider configuration follows the current official [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render pgvector support](https://render.com/docs/postgresql-extensions), and [Vercel monorepo guidance](https://vercel.com/docs/monorepos).
 
-## 0. Captain checklist: anonymous public portfolio demo
+## 0. Captain checklist: anonymous public read-only demo
 
-Use this when standing up or repairing the recruiter-facing demo. Workers without Render/Vercel login cannot complete cloud steps; they can still prove the local `APP_ENV=demo` path (section 5).
+Use this when standing up or repairing the public read-only demo. Workers without Render/Vercel login cannot complete cloud steps; they can still prove the local `APP_ENV=demo` path (section 5).
 
 ### 0.1 DNS (Cloudflare for `leihuang.me`)
 
@@ -35,7 +35,7 @@ Public resolvers currently return **NXDOMAIN** for `ledger.leihuang.me` (root `l
    - `APP_ENV=demo`
    - `LLM_PROVIDER=none` (or private operator override later)
    - `OBSERVABILITY_FULL_PAYLOADS=false`
-   - No Stripe live/test secrets required for the anonymous portfolio surface
+   - No Stripe live/test secrets required for the anonymous public surface
 7. Wait until `GET https://<api-host>/ready` returns 200. Startup runs Alembic and seeds an empty demo DB under an advisory lock.
 8. Note the public API base URL for Vercel (`https://ledger-api.onrender.com` or the custom API host).
 
@@ -53,7 +53,7 @@ The API accepts Render's `postgresql://` connection string and normalizes it to 
 | --- | --- | --- |
 | `API_INTERNAL_BASE_URL` | Public Render API base URL | Server-side fetch base |
 | `NEXT_PUBLIC_API_BASE_URL` | Same public Render API base URL | Browser-visible API origin only; not a secret |
-| `OPERATOR_UI_ENABLED` | `false` | Required for anonymous portfolio |
+| `OPERATOR_UI_ENABLED` | `false` | Required for anonymous public demo |
 
 4. **Do not set** on the anonymous public Vercel project:
    - `DEMO_OPERATOR_TOKEN`, `EVAL_RUN_TOKEN`, `DOCUMENT_INGEST_TOKEN`
@@ -76,7 +76,7 @@ REQUIRE_WEB=true \
   ./scripts/verify-public-demo.sh
 ```
 
-Manual recruiter checks:
+Manual public verification:
 
 1. Open `https://ledger.leihuang.me` without credentials; read-only banner is visible.
 2. Dashboard shows seeded revenue anomalies/incidents; Agents/Tools navigation works.
@@ -114,7 +114,7 @@ See section 0.2 for the public-demo checklist. Summary:
 
 ## 2. Create the Vercel frontend
 
-See section 0.3. Root Directory must be `apps/web`. Public portfolio deployments stay read-only: every server action rejects before forwarding credentials when `OPERATOR_UI_ENABLED` is not exactly `true`.
+See section 0.3. Root Directory must be `apps/web`. Public demo deployments stay read-only: every server action rejects before forwarding credentials when `OPERATOR_UI_ENABLED` is not exactly `true`.
 
 ## 3. Optional hosted providers
 
@@ -165,7 +165,7 @@ PLAYWRIGHT_API_BASE_URL=http://localhost:8000 \
   npm run test:e2e:public-demo
 ```
 
-Operator-mode Playwright (mutations) still uses default compose env with `OPERATOR_UI_ENABLED=true` and the existing full suite (`npm run test:e2e`), including `e2e/portfolio-readiness.spec.ts`.
+Operator-mode Playwright (mutations) still uses default compose env with `OPERATOR_UI_ENABLED=true` and the existing full suite (`npm run test:e2e`).
 
 CI job `public-demo-readonly` in `.github/workflows/e2e.yml` runs the verify script and the public-demo Playwright project against compose with `.env.public-demo.example`.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify an anonymous public portfolio demo (local compose or hosted).
+# Verify an anonymous public read-only demo (local compose or hosted).
 # Proves health/readiness, seeded reads, fail-closed mutations, optional web headers.
 # Never prints token values. Exit 0 only when all required checks pass.
 #
@@ -276,7 +276,7 @@ if [[ "$STRICT_CORS" == "true" ]]; then
     -H "Access-Control-Request-Method: GET" \
     | tr -d '\r' | awk -F': ' 'tolower($1)=="access-control-allow-origin"{print $2; exit}' || true)
   if [[ "$acao" == "$EXPECTED_ORIGIN" || "$acao" == "*" ]]; then
-    # "*" would be a misconfig for credentialed demo; warn as fail for public portfolio
+    # "*" would be a misconfig for a credentialed demo; fail for the public demo
     if [[ "$acao" == "*" ]]; then
       bad "CORS ACAO is wildcard; set BACKEND_CORS_ORIGINS to exact origin $EXPECTED_ORIGIN"
     else
