@@ -4,12 +4,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_render_blueprint_wires_demo_safety_and_managed_dependencies() -> None:
+def test_render_blueprint_wires_free_demo_safety_and_managed_dependencies() -> None:
     blueprint = ROOT.joinpath("render.yaml").read_text(encoding="utf-8")
 
     assert "type: web" in blueprint
-    assert "type: worker" in blueprint
     assert "type: keyvalue" in blueprint
+    assert "type: worker" not in blueprint
+    assert "plan: starter" not in blueprint
+    assert "plan: basic-256mb" not in blueprint
+    assert blueprint.count("plan: free") == 3
+    assert "persistenceMode: off" in blueprint
     assert "fromDatabase:" in blueprint
     assert "property: connectionString" in blueprint
     assert "APP_ENV" in blueprint and "value: demo" in blueprint
@@ -19,6 +23,15 @@ def test_render_blueprint_wires_demo_safety_and_managed_dependencies() -> None:
     assert "OBSERVABILITY_FULL_PAYLOADS" in blueprint
     assert 'value: "false"' in blueprint
     assert "healthCheckPath: /ready" in blueprint
+
+
+def test_free_render_tradeoffs_and_recovery_are_documented() -> None:
+    deployment = ROOT.joinpath("docs/deployment.md").read_text(encoding="utf-8")
+
+    assert "about one minute" in deployment
+    assert "30 days after creation" in deployment
+    assert "Manual Sync" in deployment
+    assert "no background worker" in deployment
 
 
 def test_api_container_honors_host_port_contract() -> None:

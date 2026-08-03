@@ -1,18 +1,20 @@
-# Render Blueprint for the FastAPI API, Celery worker, Postgres, and Key Value.
+# Zero-cost Render Blueprint for the public read-only FastAPI API.
+# Async Celery execution is intentionally omitted because Render background
+# workers have no free instance type and anonymous demo mutations are blocked.
 # The Next.js app is deployed separately from apps/web on Cloudflare Workers.
 
 services:
   - type: keyvalue
     name: ledger-redis
-    plan: starter
+    plan: free
     ipAllowList: []
     maxmemoryPolicy: noeviction
-    persistenceMode: journal-snapshot
+    persistenceMode: off
 
   - type: web
     name: ledger-api
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: ./apps/api
     healthCheckPath: /ready
@@ -68,53 +70,9 @@ services:
       - key: RATE_LIMIT_SEARCH_PER_MINUTE
         value: "60"
 
-  - type: worker
-    name: ledger-worker
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./apps/api/Dockerfile
-    dockerContext: ./apps/api
-    dockerCommand: ./entrypoint.sh worker
-    autoDeployTrigger: checksPass
-    maxShutdownDelaySeconds: 120
-    envVars:
-      - key: APP_ENV
-        value: demo
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ledger-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          name: ledger-redis
-          type: keyvalue
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          name: ledger-redis
-          type: keyvalue
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          name: ledger-redis
-          type: keyvalue
-          property: connectionString
-      - key: EMBEDDING_PROVIDER
-        value: local
-      - key: EMBEDDING_MODEL
-        value: local-hashing-v1
-      - key: LLM_PROVIDER
-        value: none
-      - key: OBSERVABILITY_PROVIDER
-        value: local
-      - key: OBSERVABILITY_FULL_PAYLOADS
-        value: "false"
-      - key: LOG_FORMAT
-        value: json
-
 databases:
   - name: ledger-postgres
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"
     databaseName: ledger
     user: ledger
