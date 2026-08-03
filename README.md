@@ -215,7 +215,7 @@ Use fresh command summaries as the source of truth for pass counts; do not treat
 | `apps/api` | FastAPI domains, LangGraph workflow, Celery, Alembic, evals, tests |
 | `apps/web` | Next.js App Router operations UI |
 | `docker-compose.yml` | Local full stack |
-| `render.yaml` / `apps/web/vercel.json` | Deploy blueprints |
+| `render.yaml` / `apps/web/wrangler.jsonc` | Render backend and Cloudflare Workers frontend deployment config |
 | `AGENTS.md` | Product contract, success criteria, and guardrails |
 | `docs/` | Security, deployment, demo script, sign-off evidence |
 

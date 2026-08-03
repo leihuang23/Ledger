@@ -50,9 +50,9 @@ Implementation lives in `apps/api/app/stripe_adapter/` (`POST /stripe/webhook`, 
 
 ## Public demo deployment
 
-- Topology and captain checklist: `docs/deployment.md` (Vercel `apps/web` + Render `render.yaml`; target origin `https://ledger.leihuang.me`).
+- Topology and captain checklist: `docs/deployment.md` (Cloudflare Workers `apps/web` via OpenNext + Render `render.yaml`; target origin `https://ledger.leihuang.me`).
 - Local anonymous proof (no cloud login): `.env.public-demo.example`, `scripts/verify-public-demo.sh`, and `apps/web` `npm run test:e2e:public-demo` with `PLAYWRIGHT_EXPECT_READ_ONLY=true`.
-- Never put operator/eval/ingest/Stripe/model secrets in public Vercel env or any `NEXT_PUBLIC_*` variable.
+- Never put operator/eval/ingest/Stripe/model secrets in the public Worker environment or any `NEXT_PUBLIC_*` variable.
 
 ## MVP Definition
 

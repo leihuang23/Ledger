@@ -10,16 +10,22 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "build:cloudflare": "opennextjs-cloudflare build",
     "start": "next start",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:preview": "opennextjs-cloudflare build && opennextjs-cloudflare deploy --env preview",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "lint": "next typegen && tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/resolveApiBaseUrl.test.ts lib/traceLink.test.ts app/reviewerFlowSmoke.test.ts",
+    "test": "node --experimental-strip-types --test lib/resolveApiBaseUrl.test.ts lib/traceLink.test.ts lib/cloudflareDeployment.test.ts app/reviewerFlowSmoke.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --reporter=dot",
     "test:e2e:public-demo": "playwright test e2e/read-only-demo.spec.ts e2e/public-demo-browse.spec.ts",
     "demo:assets": "node scripts/capture-demo-assets.mjs"
   },
   "dependencies": {
-    "next": "^16.0.0",
+    "next": "^16.2.12",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -27,11 +33,13 @@
     "postcss": "^8.5.10"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.2",
     "@playwright/test": "^1.49.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "playwright": "^1.49.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "wrangler": "^4.118.0"
   }
 }

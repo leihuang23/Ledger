@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 !.env*.example
+.dev.vars*
+!apps/web/.dev.vars.example
 
 __pycache__/
 .pytest_cache/
@@ -17,6 +19,8 @@ build/
 
 node_modules/
 .next/
+.open-next/
+.wrangler/
 out/
 plans/
 *.tsbuildinfo

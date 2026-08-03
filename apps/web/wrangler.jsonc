@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ledger-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "ledger.leihuang.me",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "API_INTERNAL_BASE_URL": "https://ledger-api.onrender.com",
+    "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com",
+    "OPERATOR_UI_ENABLED": "false"
+  },
+  "env": {
+    "preview": {
+      "workers_dev": true,
+      "preview_urls": true,
+      "routes": [],
+      "vars": {
+        "API_INTERNAL_BASE_URL": "https://ledger-api.onrender.com",
+        "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com",
+        "OPERATOR_UI_ENABLED": "false"
+      }
+    }
+  }
+}
