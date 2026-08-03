@@ -46,6 +46,8 @@ Forbidden unless this file is updated again:
 
 Preserve existing evidence, eval, approval, audit, and demo-token gates whether or not Stripe is configured. The anonymous public demo remains read-only (`APP_ENV=demo` and operator gates unchanged).
 
+Implementation lives in `apps/api/app/stripe_adapter/` (`POST /stripe/webhook`, `POST /stripe/reconcile`, status/events/ingestion-log routes). Optional env: `STRIPE_API_KEY` (`sk_test_` only), `STRIPE_WEBHOOK_SECRET`. See `docs/deployment.md` and `tests/test_stripe_adapter.py`.
+
 ## Public demo deployment
 
 - Topology and captain checklist: `docs/deployment.md` (Vercel `apps/web` + Render `render.yaml`; target origin `https://ledger.leihuang.me`).

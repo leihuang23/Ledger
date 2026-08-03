@@ -140,6 +140,8 @@ Stripe is **in scope only** as a narrow **optional test-mode evidence adapter** 
 | Bounded reconciliation for missed events | Stripe writes beyond ingestion/reconciliation into Ledger |
 | Test Clock failed-renewal evidence feeding investigations with citations | Exposing Stripe secrets via public client config or the anonymous demo |
 
+Optional env (test mode only): `STRIPE_API_KEY` (`sk_test_...`; rejected for `sk_live_...`), `STRIPE_WEBHOOK_SECRET`. The adapter is disabled when `APP_ENV=demo`.
+
 Whether or not Stripe is configured, evidence citation rules, evals, approval gates, and demo token gates stay in force. The public demo remains read-only. Prefer [AGENTS.md](AGENTS.md) for the full boundary.
 
 ---

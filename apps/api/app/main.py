@@ -26,6 +26,7 @@ from app.knowledge.router import router as knowledge_router
 from app.logging_config import configure_logging, get_logger, request_id_context
 from app.metrics.router import router as metrics_router
 from app.runs.router import router as runs_router
+from app.stripe_adapter.router import router as stripe_router
 from app.support.router import router as support_router
 from app.tools.router import router as tools_router
 
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(evals_router)
     app.include_router(eval_studio_router)
     app.include_router(runs_router)
+    app.include_router(stripe_router)
     return app
 
 

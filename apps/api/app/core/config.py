@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     rate_limit_mutations_per_minute: int = Field(default=1000, ge=1)
     rate_limit_search_per_minute: int = Field(default=1000, ge=1)
 
+    # Optional Stripe test-mode evidence adapter (never live keys; disabled in APP_ENV=demo).
+    stripe_api_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_webhook_tolerance_seconds: int = Field(default=300, ge=0, le=3600)
+
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
@@ -98,6 +103,8 @@ class Settings(BaseSettings):
         "openai_api_key",
         "anthropic_api_key",
         "zhipu_api_key",
+        "stripe_api_key",
+        "stripe_webhook_secret",
         mode="before",
     )
     @classmethod
@@ -105,6 +112,17 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             stripped = value.strip()
             return stripped or None
+        return value
+
+    @field_validator("stripe_api_key", mode="after")
+    @classmethod
+    def reject_live_stripe_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if value.startswith("sk_live_"):
+            raise ValueError(
+                "Live-mode Stripe secret keys are not permitted. Use sk_test_ only."
+            )
         return value
 
     @field_validator(

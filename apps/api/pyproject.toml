@@ -39,6 +39,9 @@ run-eval-suite = "app.evals.runner:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "stripe_live: optional live Stripe Test Clock path (requires STRIPE_API_KEY=sk_test_...)",
+]
 
 [tool.ruff]
 target-version = "py312"

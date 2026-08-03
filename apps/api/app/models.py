@@ -36,6 +36,10 @@ class Account(Base):
     region: Mapped[str] = mapped_column(String(80), nullable=False)
     health_score: Mapped[int] = mapped_column(Integer, nullable=False)
     source_scenario: Mapped[str | None] = mapped_column(String(80))
+    stripe_customer_id: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True
+    )
+    stripe_object_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
@@ -90,6 +94,10 @@ class Subscription(Base):
     canceled_at: Mapped[date | None] = mapped_column(Date)
     cancellation_reason: Mapped[str | None] = mapped_column(String(160))
     source_scenario: Mapped[str | None] = mapped_column(String(80))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True
+    )
+    stripe_object_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     account: Mapped[Account] = relationship(back_populates="subscriptions")
     invoices: Mapped[list[Invoice]] = relationship(back_populates="subscription")
@@ -117,6 +125,10 @@ class Invoice(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(160))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime)
     source_scenario: Mapped[str | None] = mapped_column(String(80))
+    stripe_invoice_id: Mapped[str | None] = mapped_column(
+        String(128), unique=True, index=True
+    )
+    stripe_object_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     account: Mapped[Account] = relationship(back_populates="invoices")
     subscription: Mapped[Subscription] = relationship(back_populates="invoices")
@@ -698,3 +710,52 @@ Index(
 Index("ix_agent_versions_agent_status", AgentVersion.agent_id, AgentVersion.status)
 Index("ix_agent_runs_version_status", AgentRun.agent_version_id, AgentRun.status)
 Index("ix_agent_runs_version_created", AgentRun.agent_version_id, AgentRun.created_at)
+
+
+class StripeEvent(Base):
+    """Idempotent ledger of Stripe webhook events (test-mode evidence only)."""
+
+    __tablename__ = "stripe_events"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    api_version: Mapped[str | None] = mapped_column(String(40))
+    livemode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    stripe_created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    object_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class StripeIngestionLog(Base):
+    """Visible record of unsupported types, live-mode rejects, and apply failures."""
+
+    __tablename__ = "stripe_ingestion_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    event_type: Mapped[str | None] = mapped_column(String(120), index=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+
+class StripeReconciliationRun(Base):
+    """Audit row for a bounded Stripe sandbox reconciliation pass."""
+
+    __tablename__ = "stripe_reconciliation_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    customers_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    subscriptions_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invoices_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    repaired: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
