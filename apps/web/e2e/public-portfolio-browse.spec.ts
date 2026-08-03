@@ -28,20 +28,30 @@ test.describe('public portfolio browse', () => {
     await expect(page.getByText(/Metric evidence|Affected accounts|Evidence sources/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Run investigation/i })).toBeDisabled();
 
-    // Runs timeline (may be empty on a fresh seed; page must still load)
+    // Runs timeline shows seeded completed runs with ordered steps
     await page.getByRole('navigation').getByRole('link', { name: 'Runs', exact: true }).click();
     await page.waitForURL(/\/runs/);
     await expect(page.getByRole('heading', { name: /Runs/i }).first()).toBeVisible();
+    const runLink = page.locator('a[href^="/runs/"]').first();
+    await expect(runLink).toBeVisible();
+    await runLink.click();
+    await page.waitForURL(/\/runs\/run_/);
+    await expect(
+      page.getByRole('heading', { name: /Cited evidence|Tool-step history/i }).first(),
+    ).toBeVisible();
+    await page.goBack();
 
-    // Approvals queue (read-only inspection)
+    // Approvals queue shows seeded approval states (read-only inspection)
     await page.getByRole('navigation').getByRole('link', { name: 'Approvals' }).click();
     await page.waitForURL('/approvals');
     await expect(page.getByRole('heading', { name: /Approval/i }).first()).toBeVisible();
+    await expect(page.locator('.approval-row').first()).toBeVisible();
 
-    // Evals studio remains navigable; mutating run control is disabled
+    // Evals studio shows seeded regression results; mutating run control is disabled
     await page.getByRole('navigation').getByRole('link', { name: 'Evals' }).click();
     await page.waitForURL('/evals');
     await expect(page.getByRole('heading', { name: /Eval/i }).first()).toBeVisible();
+    await expect(page.getByText(/regression|pass rate|eval/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run selected dataset' })).toBeDisabled();
 
     // Agents + tools control-plane surfaces

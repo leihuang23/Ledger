@@ -80,11 +80,13 @@ Manual recruiter checks:
 
 1. Open `https://ledger.leihuang.me` without credentials; read-only banner is visible.
 2. Dashboard shows seeded revenue anomalies/incidents; Agents/Tools navigation works.
-3. Runs show ordered steps, citations, traces/cost fields, and visible failures when present.
-4. Approvals and eval surfaces are inspectable; high-risk actions stay pending until an operator decision (operator path only).
+3. Runs show pre-seeded completed investigations with ordered steps, citations, local traces, token/cost fields, a visible failed run, and a blocked-step run (permission enforcement).
+4. Approvals show pending/approved/rejected states, and the eval studio shows a good-vs-degraded regression (5/6 vs 6/6); high-risk actions stay pending until an operator decision (operator path only).
 5. Direct anonymous `POST` mutations against the API return 403 and do not change state (covered by the script).
 6. Response headers include CSP, frame protection, MIME sniffing protection, referrer policy, restrictive permissions policy, and HSTS on HTTPS.
 7. View-source / network: no operator tokens, model keys, or Stripe secrets in HTML, JS, or API JSON.
+
+The demo database is seeded with these synthetic audit surfaces automatically in `APP_ENV=demo` (`app/seed.py`, `_seed_demo_audit_surfaces`): seven deterministic runs, five approval requests spanning all decision states, and eval results for every published agent version so the studio comparison is never empty. They are read-only demo artifacts, disclosed as synthetic; anonymous mutations still fail closed at 403.
 
 ### 0.5 Captain actions still required when worker is unauthenticated
 

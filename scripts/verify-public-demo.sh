@@ -168,9 +168,43 @@ assert_status_one_of "GET dashboard metrics" "$code" "200"
 
 code=$(http_code GET "$API_BASE_URL/runs?limit=5")
 assert_status "GET /runs" "$code" "200"
+if [[ "$code" == "200" ]]; then
+  run_count=$(python3 -c "import json,sys; d=json.load(open('$(body_file)')); print(len(d) if isinstance(d, list) else len(d.get('runs', [])))")
+  if [[ "$run_count" -ge 1 ]]; then
+    ok "seeded runs visible (count>=1, saw $run_count)"
+  else
+    bad "expected seeded runs, saw $run_count"
+  fi
+fi
 
 code=$(http_code GET "$API_BASE_URL/approvals?limit=5")
 assert_status_one_of "GET /approvals" "$code" "200"
+if [[ "$code" == "200" ]]; then
+  approval_count=$(python3 -c "import json,sys; d=json.load(open('$(body_file)')); print(len(d) if isinstance(d, list) else len(d.get('approvals', [])))")
+  if [[ "$approval_count" -ge 1 ]]; then
+    ok "seeded approvals visible (count>=1, saw $approval_count)"
+  else
+    bad "expected seeded approvals, saw $approval_count"
+  fi
+fi
+
+# Eval regression: the good version passes every case and the degraded
+# candidate regresses, so the studio comparison is never empty.
+code=$(http_code GET "$API_BASE_URL/eval-results?dataset_id=mrr-drop-suite&agent_version_id=ledger_phase6")
+good_passed=0
+if [[ "$code" == "200" ]]; then
+  good_passed=$(python3 -c "import json,sys; d=json.load(open('$(body_file)')); print(sum(1 for r in d.get('results',[]) if r.get('passed')))")
+fi
+code=$(http_code GET "$API_BASE_URL/eval-results?dataset_id=mrr-drop-suite&agent_version_id=ledger_phase6_degraded")
+degraded_passed=0
+if [[ "$code" == "200" ]]; then
+  degraded_passed=$(python3 -c "import json,sys; d=json.load(open('$(body_file)')); print(sum(1 for r in d.get('results',[]) if r.get('passed')))")
+fi
+if [[ "$good_passed" -gt "$degraded_passed" && "$good_passed" -ge 1 ]]; then
+  ok "eval regression visible (good $good_passed passed, degraded $degraded_passed passed)"
+else
+  bad "expected eval regression (good $good_passed passed vs degraded $degraded_passed passed)"
+fi
 
 code=$(http_code GET "$API_BASE_URL/agents")
 assert_status "GET /agents" "$code" "200"
