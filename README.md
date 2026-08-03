@@ -9,7 +9,7 @@ The repository tells two connected portfolio stories:
 
 The product is intentionally not a toy chatbot. Every important claim is expected to link back to retrieved evidence, every tool call is permission-checked, and every risky action remains a mock until an operator decides it.
 
-[Watch the recorded walkthrough](docs/assets/ledger-walkthrough.webm) or follow the [narrated demo script](docs/demo-script.md).
+[Watch the recruiter walkthrough](docs/assets/ledger-walkthrough-recruiter.webm) (~2-3 min, [captions](docs/assets/ledger-walkthrough-recruiter.vtt), [script](docs/demo-script-recruiter.md)) or the [full recorded walkthrough](docs/assets/ledger-walkthrough.webm) with the [five-minute demo script](docs/demo-script.md). The short cut is a silent trim of the full capture; captions carry the narrative.
 
 ## The Problem
 
@@ -69,7 +69,7 @@ The screenshots are generated from the seeded local stack with `npm run portfoli
 5. Open **Eval Studio**, compare the good version with the intentionally degraded version, and inspect the case that flips from pass to fail.
 6. Open **Observability** to compare success rate, average/p95 latency, and estimated cost per version.
 
-The exact narration, expected evidence, and recovery steps are in [docs/demo-script.md](docs/demo-script.md).
+The recruiter narration (2-3 min) is in [docs/demo-script-recruiter.md](docs/demo-script-recruiter.md). The full five-minute narration, expected evidence, and recovery steps remain in [docs/demo-script.md](docs/demo-script.md).
 
 ## Product Direction
 
