@@ -172,7 +172,9 @@ def test_demo_audit_seed_is_idempotent(
             assert second.counts == first.counts
             assert second.fingerprint == first.fingerprint
             assert (
-                session.scalar(select(AgentRun.id).where(AgentRun.id == "run_f5af975d8f27487f"))
+                session.scalar(
+                    select(AgentRun.id).where(AgentRun.id == "run_f5af975d8f27487f")
+                )
                 == "run_f5af975d8f27487f"
             )
     finally:

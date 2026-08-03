@@ -889,9 +889,14 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
     if session.get(AgentRun, DEMO_AUDIT_ANCHOR_RUN_ID) is not None:
         return
 
-    from app.agents.service import PHASE6_AGENT_VERSION_ID, PHASE6_DEGRADED_AGENT_VERSION_ID
+    from app.agents.service import (
+        PHASE6_AGENT_VERSION_ID,
+        PHASE6_DEGRADED_AGENT_VERSION_ID,
+    )
 
-    anomaly_id = anomaly_id_for_window(revenue_week_windows(DATASET_ANCHOR).current_start)
+    anomaly_id = anomaly_id_for_window(
+        revenue_week_windows(DATASET_ANCHOR).current_start
+    )
     incident_ids = {
         scenario: incident_id_for_scenario(scenario, anomaly_id)
         for scenario in SCENARIOS
@@ -1032,30 +1037,36 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         cost=0.018,
     )
 
-    session.add_all(_demo_audit_eval_results(
-        session,
-        eval_run_id="evalrun_demo_phase1",
-        agent_run_id=eval_phase1_run.id,
-        agent_version_id="ledger_v1",
-        fail_scenarios=set(),
-        anchor=anchor,
-    ))
-    session.add_all(_demo_audit_eval_results(
-        session,
-        eval_run_id="evalrun_demo_phase6",
-        agent_run_id=eval_good_run.id,
-        agent_version_id=PHASE6_AGENT_VERSION_ID,
-        fail_scenarios=set(),
-        anchor=anchor,
-    ))
-    session.add_all(_demo_audit_eval_results(
-        session,
-        eval_run_id="evalrun_demo_degraded",
-        agent_run_id=eval_degraded_run.id,
-        agent_version_id=PHASE6_DEGRADED_AGENT_VERSION_ID,
-        fail_scenarios={"support_backlog_export_bug"},
-        anchor=anchor,
-    ))
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_phase1",
+            agent_run_id=eval_phase1_run.id,
+            agent_version_id="ledger_v1",
+            fail_scenarios=set(),
+            anchor=anchor,
+        )
+    )
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_phase6",
+            agent_run_id=eval_good_run.id,
+            agent_version_id=PHASE6_AGENT_VERSION_ID,
+            fail_scenarios=set(),
+            anchor=anchor,
+        )
+    )
+    session.add_all(
+        _demo_audit_eval_results(
+            session,
+            eval_run_id="evalrun_demo_degraded",
+            agent_run_id=eval_degraded_run.id,
+            agent_version_id=PHASE6_DEGRADED_AGENT_VERSION_ID,
+            fail_scenarios={"support_backlog_export_bug"},
+            anchor=anchor,
+        )
+    )
 
 
 DEMO_AUDIT_ANCHOR_RUN_ID: Final[str] = "run_f5af975d8f27487f"
@@ -1229,7 +1240,9 @@ def _demo_audit_steps(
                 error=error,
                 blocked_reason=blocked_reason,
                 started_at=step_start,
-                completed_at=step_end if status in ("succeeded", "blocked") else step_start,
+                completed_at=step_end
+                if status in ("succeeded", "blocked")
+                else step_start,
                 created_at=created_at,
             )
         )
@@ -1264,7 +1277,11 @@ def _demo_step_inputs(
     if tool_name == "query_revenue_metrics":
         return {"incident_id": incident_id}
     if tool_name == "fetch_account_details":
-        return {"account_ids": account_ids, "invoice_ids": invoice_ids, "include_invoices": True}
+        return {
+            "account_ids": account_ids,
+            "invoice_ids": invoice_ids,
+            "include_invoices": True,
+        }
     if tool_name == "search_docs":
         return {"query": doc_query, "limit": 5}
     if tool_name == "fetch_support_tickets":
@@ -1272,7 +1289,12 @@ def _demo_step_inputs(
     if stage == "synthesize report":
         return {
             "incident_id": incident_id,
-            "evidence_sets": ["revenue_metrics", "account_details", "doc_results", "support_tickets"],
+            "evidence_sets": [
+                "revenue_metrics",
+                "account_details",
+                "doc_results",
+                "support_tickets",
+            ],
         }
     if tool_name == "create_mock_action":
         return {"run_id": "", "action_types": ["draft_slack_message", "create_task"]}
@@ -1294,8 +1316,18 @@ def _demo_step_outputs(
     if stage == "plan":
         return {
             "objective": "Explain the paid MRR drop, identify affected accounts, and cite evidence.",
-            "hypotheses": [str(item) for item in (SCENARIOS.get(incident.source_scenario, {}) if incident else {}).get("false_leads", [])][:2],
-            "tool_calls": ["query_revenue_metrics", "fetch_account_details", "search_docs", "fetch_support_tickets"],
+            "hypotheses": [
+                str(item)
+                for item in (
+                    SCENARIOS.get(incident.source_scenario, {}) if incident else {}
+                ).get("false_leads", [])
+            ][:2],
+            "tool_calls": [
+                "query_revenue_metrics",
+                "fetch_account_details",
+                "search_docs",
+                "fetch_support_tickets",
+            ],
             "disabled_tool_ids": [],
         }
     if tool_name == "query_revenue_metrics":
@@ -1303,9 +1335,14 @@ def _demo_step_outputs(
         return {
             "incident_id": incident.id if incident else "",
             "metric_evidence": metric,
-            "affected_account_ids": [account["account_id"] for account in (evidence.get("affected_accounts") or [])],
+            "affected_account_ids": [
+                account["account_id"]
+                for account in (evidence.get("affected_accounts") or [])
+            ],
             "invoice_ids": metric.get("invoice_ids") or [],
-            "sql_evidence": [{"query": query} for query in (evidence.get("source_queries") or [])],
+            "sql_evidence": [
+                {"query": query} for query in (evidence.get("source_queries") or [])
+            ],
         }
     if tool_name == "fetch_account_details":
         return {
@@ -1324,7 +1361,12 @@ def _demo_step_outputs(
         return {
             "query": (evidence.get("source_queries") or [""])[0],
             "results": [
-                {"document_id": _DEMO_REPORT_DOCS.get(incident.source_scenario, "") if incident else "", "score": 0.92}
+                {
+                    "document_id": _DEMO_REPORT_DOCS.get(incident.source_scenario, "")
+                    if incident
+                    else "",
+                    "score": 0.92,
+                }
             ],
         }
     if tool_name == "fetch_support_tickets":
@@ -1335,7 +1377,11 @@ def _demo_step_outputs(
             ]
         }
     if tool_name == "create_mock_action":
-        return {"action_count": 2, "action_types": ["draft_slack_message", "create_task"], "pending_approval_count": 0}
+        return {
+            "action_count": 2,
+            "action_types": ["draft_slack_message", "create_task"],
+            "pending_approval_count": 0,
+        }
     return {}
 
 
@@ -1383,7 +1429,9 @@ def _demo_audit_report(
             reference_id=f"sql:{query[:32]}",
             source_query=query,
             citation={
-                "window": evidence.get("metric_evidence", {}).get("current_window_start")
+                "window": evidence.get("metric_evidence", {}).get(
+                    "current_window_start"
+                )
             },
         )
         for query in source_queries[:2]
@@ -1608,10 +1656,42 @@ def _demo_audit_actions(
                 note_action,
                 email_approval,
                 note_approval,
-                audit(f"{base}_aud_1", low_slack.id, None, "executed", "ledger-agent", None, updated),
-                audit(f"{base}_aud_2", low_task.id, None, "executed", "ledger-agent", None, updated),
-                audit(f"{base}_aud_3", email_action.id, email_approval.id, "proposed", "ledger-agent", None, created_at),
-                audit(f"{base}_aud_4", note_action.id, note_approval.id, "proposed", "ledger-agent", None, created_at),
+                audit(
+                    f"{base}_aud_1",
+                    low_slack.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_2",
+                    low_task.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_3",
+                    email_action.id,
+                    email_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_4",
+                    note_action.id,
+                    note_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
             ]
         )
         return
@@ -1664,11 +1744,51 @@ def _demo_audit_actions(
                 rejected_action,
                 approved_approval,
                 rejected_approval,
-                audit(f"{base}_aud_1", approved_action.id, approved_approval.id, "proposed", "ledger-agent", None, created_at),
-                audit(f"{base}_aud_2", approved_action.id, approved_approval.id, "approved", "demo-operator", "Approved with default template.", updated),
-                audit(f"{base}_aud_3", approved_action.id, None, "executed", "ledger-agent", None, updated + timedelta(minutes=1)),
-                audit(f"{base}_aud_4", rejected_action.id, rejected_approval.id, "proposed", "ledger-agent", None, created_at),
-                audit(f"{base}_aud_5", rejected_action.id, rejected_approval.id, "rejected", "demo-operator", "Rejected; note content needs review.", updated),
+                audit(
+                    f"{base}_aud_1",
+                    approved_action.id,
+                    approved_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_2",
+                    approved_action.id,
+                    approved_approval.id,
+                    "approved",
+                    "demo-operator",
+                    "Approved with default template.",
+                    updated,
+                ),
+                audit(
+                    f"{base}_aud_3",
+                    approved_action.id,
+                    None,
+                    "executed",
+                    "ledger-agent",
+                    None,
+                    updated + timedelta(minutes=1),
+                ),
+                audit(
+                    f"{base}_aud_4",
+                    rejected_action.id,
+                    rejected_approval.id,
+                    "proposed",
+                    "ledger-agent",
+                    None,
+                    created_at,
+                ),
+                audit(
+                    f"{base}_aud_5",
+                    rejected_action.id,
+                    rejected_approval.id,
+                    "rejected",
+                    "demo-operator",
+                    "Rejected; note content needs review.",
+                    updated,
+                ),
             ]
         )
         return
@@ -1695,7 +1815,15 @@ def _demo_audit_actions(
         [
             pending_action,
             pending_approval,
-            audit(f"{base}_aud_1", pending_action.id, pending_approval.id, "proposed", "ledger-agent", None, created_at),
+            audit(
+                f"{base}_aud_1",
+                pending_action.id,
+                pending_approval.id,
+                "proposed",
+                "ledger-agent",
+                None,
+                created_at,
+            ),
         ]
     )
 
@@ -1741,14 +1869,10 @@ def _demo_audit_eval_results(
                 ),
                 expected_evidence_types=list(case.expected_evidence_types),
                 observed_evidence_types=(
-                    list(case.expected_evidence_types)
-                    if passed
-                    else ["sql", "ticket"]
+                    list(case.expected_evidence_types) if passed else ["sql", "ticket"]
                 ),
                 failure_reasons=(
-                    []
-                    if passed
-                    else ["expected_document_evidence_missing"]
+                    [] if passed else ["expected_document_evidence_missing"]
                 ),
                 example_output={
                     "run_id": agent_run_id,

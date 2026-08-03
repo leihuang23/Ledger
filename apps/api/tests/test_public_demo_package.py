@@ -25,10 +25,7 @@ def test_public_demo_artifacts_and_checklist() -> None:
     assert "GET /health" in script or "/health" in script
     assert "/ready" in script
     assert "403" in script
-    assert (
-        "DEMO_OPERATOR_TOKEN" not in script
-        or "never prints token" in script.lower()
-    )
+    assert "DEMO_OPERATOR_TOKEN" not in script or "never prints token" in script.lower()
 
     e2e_workflow = ROOT.joinpath(".github/workflows/e2e.yml").read_text(
         encoding="utf-8"
