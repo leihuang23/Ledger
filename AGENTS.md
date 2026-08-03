@@ -28,7 +28,7 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 
 Stripe is **in scope only** as a narrow test-mode evidence adapter (Stripe evidence boundary) as defined in this section. It is not a general merchant platform.
 
-Allowed (when implemented in a later slice):
+Allowed (the adapter is implemented in `apps/api/app/stripe_adapter/`):
 
 - Test-mode only; no live credentials or real customer data.
 - Customers, subscriptions, and invoices ingestion into existing Ledger models.

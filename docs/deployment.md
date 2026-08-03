@@ -140,7 +140,7 @@ Stripe is an **optional** sandbox evidence source, not a payments product surfac
 | `STRIPE_WEBHOOK_SECRET` | Webhook signing secret (`whsec_...`) for `POST /stripe/webhook`. |
 | `STRIPE_WEBHOOK_TOLERANCE_SECONDS` | Signature timestamp tolerance (default `300`). |
 
-Endpoints (disabled when `APP_ENV=demo`; fail closed when secrets are unset):
+Endpoints (all routes except `GET /stripe/status` are disabled when `APP_ENV=demo`; `POST /stripe/webhook` and `POST /stripe/reconcile` also fail closed when the required secret is unset):
 
 - `GET /stripe/status` - whether the adapter is configured/enabled
 - `POST /stripe/webhook` - signed event ingest (raw body signature verification, event-id idempotency, out-of-order re-fetch when an API key is present)

@@ -81,7 +81,7 @@ Most AI agent demos are too toy-like. This project should prove that you can bui
 
 ### Stripe evidence boundary (optional)
 
-Stripe is an **optional evidence source**, not a merchant or payments product surface. When implemented:
+Stripe is an **optional evidence source**, not a merchant or payments product surface. The adapter's boundary:
 
 - Use **test-mode only**; never store live credentials or real customer data.
 - Keep Stripe outside investigation logic: normalize sandbox billing events into Ledger's existing account, subscription, and invoice model.
