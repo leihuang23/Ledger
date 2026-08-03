@@ -2,13 +2,15 @@
 
 This script is the narration track for `docs/assets/ledger-walkthrough.webm`. It uses only synthetic seeded data and the local deterministic execution path, so a reviewer can reproduce the same evidence without API keys.
 
+**Short cut (2-3 minutes):** use [`docs/demo-script-short.md`](demo-script-short.md) with [`docs/assets/ledger-walkthrough-short.webm`](assets/ledger-walkthrough-short.webm) and captions in [`docs/assets/ledger-walkthrough-short.vtt`](assets/ledger-walkthrough-short.vtt). The short file is a silent trim of this full capture, not a new voiceover recording. Keep this five-minute script as the deeper reference.
+
 ## Before the recording
 
 1. Copy the three example environment files. Export matching non-empty `DEMO_OPERATOR_TOKEN` and `EVAL_RUN_TOKEN` values, and set `OPERATOR_UI_ENABLED=true`, for this local/protected recording session.
 2. Start the stack with `docker compose up -d --build` and wait for the API, Postgres, Redis, and web health checks.
 3. Run `cd apps/web && npm run portfolio:assets`. The script performs the workflow in the browser and waits for fresh run/eval jobs; it does not reuse partial eval rows or pre-provision the result before recording.
 
-## 0:00–0:30 — Frame the problem
+## 0:00-0:30 - Frame the problem
 
 Open `/`.
 
@@ -16,7 +18,7 @@ Open `/`.
 
 Point out the seeded MRR movement, failed invoices, support signals, and incident links. These are business facts, not LLM-generated claims.
 
-## 0:30–1:05 — Version and govern the agent
+## 0:30-1:05 - Version and govern the agent
 
 Open the published Phase 6 baseline (`ledger_phase6` on migrated deployments), choose **New draft from this version**, remove `search_docs`, keep `run_eval` and its scope enabled, save, and publish the candidate.
 
@@ -26,7 +28,7 @@ Open `/tools` and confirm the candidate choices came from the same seven-entry r
 
 > “The tool surface is explicit. Each binding has input/output schemas, an implementation reference, and one fixed permission scope. Runtime policy requires both an enabled tool id and an allowed scope.”
 
-## 1:05–2:00 — Launch and audit a run
+## 1:05-2:00 - Launch and audit a run
 
 From the newly published version, launch the seeded MRR-drop incident. Open the resulting `/runs/<id>` page and find the blocked `search_docs` step.
 
@@ -41,7 +43,7 @@ Point out:
 - token counts and estimated cost label;
 - ordered step status and duration.
 
-## 2:00–2:35 — Show the action boundary
+## 2:00-2:35 - Show the action boundary
 
 Open `/approvals` and filter to **Pending** and **High risk**.
 
@@ -49,7 +51,7 @@ Open `/approvals` and filter to **Pending** and **High risk**.
 
 Reject both pending requests in the disposable local recording database and show the recorded decisions/audit state. The run must reach terminal `succeeded` before the eval sequence starts.
 
-## 2:35–3:10 — Inspect operations
+## 2:35-3:10 - Inspect operations
 
 Open `/dashboard`.
 
@@ -57,7 +59,7 @@ Open `/dashboard`.
 
 Emphasize that cost is an estimate, not billing precision.
 
-## 3:10–4:20 — Prove quality with A-vs-B evals
+## 3:10-4:20 - Prove quality with A-vs-B evals
 
 Open `/evals`. Trigger a fresh `mrr-drop-suite` run for `ledger_phase6`, then trigger a fresh run for the candidate created earlier. Wait for both terminal summaries and compare them.
 
@@ -67,7 +69,7 @@ Show the regression banner and the case marked **Regression**.
 
 > “The candidate intentionally lacks a required evidence tool. A case that passed on the Phase 6 baseline flips to fail, which makes the release risk obvious rather than hiding it inside an average score.”
 
-## 4:20–5:00 — Close with the engineering claim
+## 4:20-5:00 - Close with the engineering claim
 
 Return to `/runs` or the successful run detail.
 
