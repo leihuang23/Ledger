@@ -8,7 +8,7 @@
 | --- | --- |
 | **Live demo** (anonymous, read-only) | [ledger.leihuang.me](https://ledger.leihuang.me) |
 | **Case study** | [leihuang.me/work/ledger](https://leihuang.me/work/ledger/) |
-| **Walkthrough** | [docs/assets/ledger-walkthrough.webm](docs/assets/ledger-walkthrough.webm) (~3 min) · [narrated script](docs/demo-script.md) |
+| **Walkthrough** | [docs/assets/ledger-walkthrough-short.webm](docs/assets/ledger-walkthrough-short.webm) (~2-3 min) · [captions](docs/assets/ledger-walkthrough-short.vtt) · [narrated script](docs/demo-script-short.md) |
 
 > **Scope and disclosures.** Ledger uses **synthetic business data**. The public deployment is **read-only**. Root cause comes from a **deterministic classifier**; the optional LLM synthesizes wording and is adopted only when it agrees. Slack/email/CRM/task actions are **mocks behind approval**. Stripe is an **optional test-mode evidence adapter** (ingestion only; not live commerce). No merchant adoption or live-customer claims.
 
@@ -36,7 +36,7 @@ Open the [live demo](https://ledger.leihuang.me) (anonymous, read-only) or the l
 3. **Check approvals** - verify the high-risk customer follow-up stays pending until approved or rejected.
 4. **Compare evals** - open Eval Studio and flip the degraded candidate to see one case regress from pass to fail.
 
-A recorded walkthrough is at [docs/assets/ledger-walkthrough.webm](docs/assets/ledger-walkthrough.webm) (~3 min); the full narration and expected evidence are in [docs/demo-script.md](docs/demo-script.md).
+A recorded walkthrough is at [docs/assets/ledger-walkthrough-short.webm](docs/assets/ledger-walkthrough-short.webm) (~2-3 min), with [captions](docs/assets/ledger-walkthrough-short.vtt); the narration and expected evidence are in [docs/demo-script-short.md](docs/demo-script-short.md).
 
 ---
 
@@ -200,7 +200,7 @@ curl -s http://localhost:8000/incidents
 curl -s http://localhost:8000/approvals
 ```
 
-Browser: open an incident → start or open an investigation → confirm citations and pending high-risk approvals → open Eval Studio for baseline vs degraded comparison. Full narration: [docs/demo-script.md](docs/demo-script.md).
+Browser: open an incident → start or open an investigation → confirm citations and pending high-risk approvals → open Eval Studio for baseline vs degraded comparison. Narration: [docs/demo-script-short.md](docs/demo-script-short.md).
 
 Use fresh command summaries as the source of truth for pass counts; do not treat older review docs as live CI.
 
