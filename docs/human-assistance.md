@@ -1,6 +1,6 @@
 # Human-Assisted Follow-Ups
 
-These items need credentials, external services, or an operator-owned deployment target. They are not required for the local PRD MVP behavior, but they are useful before a public demo release.
+These items need credentials, external services, or an operator-owned deployment target. They are not required for the local MVP behavior, but they are useful before a public demo release.
 
 ## Credential Setup Manual
 
@@ -163,9 +163,10 @@ do not replace an operator-owned visual browser pass.
 
 ## Optional Stack Parity Decisions
 
-The PRD lists Tailwind CSS, shadcn/ui, and an OpenAI-first LLM provider layer as
-recommended stack items. Celery is already used for async investigation and eval
-runs. The local MVP proves the agentic investigation loop without Tailwind,
-shadcn/ui, or an external LLM. Before adding them, decide whether they improve
-the demo or create infrastructure weight without improving the evidence, eval,
-approval, or trace story.
+The original product brief listed Tailwind CSS, shadcn/ui, and an OpenAI-first
+LLM provider layer as recommended stack items. Celery is already used for async
+investigation and eval runs. The local MVP proves the agentic investigation loop
+without Tailwind, shadcn/ui, or an external LLM. Before adding them, decide
+whether they improve the demo or create infrastructure weight without improving
+the evidence, eval, approval, or trace story. AGENTS.md keeps the dependency
+rule: add a dependency only when a real implementation need appears.
