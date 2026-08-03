@@ -616,6 +616,118 @@ def test_invoice_updated_preserves_failed_evidence(
         assert inv.failure_reason == "card_declined"
 
 
+def test_test_clock_same_timestamp_invoice_sequence_applies(
+    session_factory: Callable[[], Session],
+) -> None:
+    """Test Clock advances emit several events for one invoice at the same frozen time.
+
+    Every same-created-time event must apply (last-wins) rather than being
+    dropped as stale, otherwise the finalized -> payment_failed renewal leaves
+    the invoice ``open`` and the failure evidence is lost. True duplicates are
+    already handled by event-ID idempotency.
+    """
+    base = int(time.time()) - 7 * 86_400
+    frozen = base + 7 * 86_400
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_cust",
+                event_type="customer.created",
+                obj=_customer("cus_ts_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_sub",
+                event_type="customer.subscription.created",
+                obj=_subscription("sub_ts_1", customer_id="cus_ts_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_finalized",
+                event_type="invoice.finalized",
+                obj=_invoice(
+                    "in_ts_1",
+                    customer_id="cus_ts_1",
+                    subscription_id="sub_ts_1",
+                    status="open",
+                    failure_reason=None,
+                    created=frozen,
+                ),
+                created=frozen,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_failed",
+                event_type="invoice.payment_failed",
+                obj=_invoice(
+                    "in_ts_1",
+                    customer_id="cus_ts_1",
+                    subscription_id="sub_ts_1",
+                    status="open",
+                    failure_reason="card_declined",
+                    created=frozen,
+                ),
+                created=frozen,
+            ),
+        )
+
+        inv = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_ts_1")
+        )
+        assert inv is not None
+        assert inv.status == "failed"
+        assert inv.failure_reason == "card_declined"
+
+        # Same timestamp in the reverse order must not regress the failure.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_fail_first",
+                event_type="invoice.payment_failed",
+                obj=_invoice(
+                    "in_ts_2",
+                    customer_id="cus_ts_1",
+                    subscription_id="sub_ts_1",
+                    status="open",
+                    failure_reason="card_expired",
+                    created=frozen,
+                ),
+                created=frozen,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_ts_finalized_last",
+                event_type="invoice.finalized",
+                obj=_invoice(
+                    "in_ts_2",
+                    customer_id="cus_ts_1",
+                    subscription_id="sub_ts_1",
+                    status="open",
+                    failure_reason=None,
+                    created=frozen,
+                ),
+                created=frozen,
+            ),
+        )
+        rev = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_ts_2")
+        )
+        assert rev is not None
+        assert rev.status == "failed"
+        assert rev.failure_reason == "card_expired"
+
+
 def test_unsupported_and_livemode_events_are_visible(
     session_factory: Callable[[], Session],
 ) -> None:

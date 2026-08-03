@@ -202,10 +202,14 @@ def is_stale(
     local_updated_at: datetime | None,
     event_created_at: datetime,
 ) -> bool:
-    """Skip applying when local state already reflects a newer Stripe object time."""
+    """Skip applying when local state reflects a strictly newer Stripe object time.
+
+    Equal-created-time events apply (last-wins); event-ID idempotency handles
+    true duplicates, so same-frozen-time Test Clock events all land.
+    """
     if local_updated_at is None:
         return False
-    return local_updated_at >= event_created_at
+    return local_updated_at > event_created_at
 
 
 def upsert_customer(
