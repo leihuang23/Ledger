@@ -40,6 +40,15 @@ run-eval-suite = "app.evals.runner:main"
 testpaths = ["tests"]
 pythonpath = ["."]
 
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pin the lint contract to ruff's historical stable default set. Newer ruff
+# releases widen the default rule selection (e.g. I001, SIM, DTZ, UP, RUF),
+# which would flag pre-existing test code that was written against E4/E7/E9/F.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 

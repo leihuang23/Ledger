@@ -526,7 +526,7 @@ Inspect the project as a vertical product slice first. Promote it to full MVP in
 
 Important inspection questions:
 
-- Does every visible operational claim have a concrete source in SQL results, support tickets, product events, incidents, or knowledge documents?
+- Does every visible operational claim have a concrete source in SQL results, support tickets, product events, incidents, knowledge documents, or (when present) Stripe-derived billing records already normalized into Ledger?
 - Are failure modes visible enough for a reviewer to diagnose missing data, bad evidence, or failed tools?
 - Is the seed data realistic enough, or is the root cause too obvious?
 - Does the UI help a reviewer audit the investigation, rather than merely presenting decorative metrics?
@@ -540,7 +540,7 @@ The project is not MVP-complete until all of these are true:
 
 - At least five seeded incident scenarios exist and are covered by integrity tests (the current seed has six, including an ambiguity case).
 - At least four of five eval scenarios resolve to the intended root cause.
-- Final reports cite SQL results, support tickets, knowledge documents, or incident records for every major claim.
+- Final reports cite SQL results, support tickets, knowledge documents, incident records, or (when present) Stripe-derived billing records already normalized into Ledger for every major claim.
 - Risky actions create approval requests or mock actions and cannot bypass approval/rejection.
 - Every agent run records step logs, trace links, token/cost estimates, tool failures, and a final report.
 - The UI exposes the primary investigation workspace: anomaly summary, evidence, affected accounts, run timeline, approval queue, and final report.

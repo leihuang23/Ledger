@@ -15,13 +15,36 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 ## Product Guardrails
 
 - Optimize for a reviewer evaluating engineering judgment, not for a flashy agent demo.
+- Honest positioning: Ledger is a production-shaped portfolio system that demonstrates investigation, cited evidence, auditable run traces, and approval-gated risky actions. Disclose synthetic data, optional Stripe test-mode sandbox evidence, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval. Do not imply merchant adoption or live commerce.
 - Keep the first version focused on the primary investigation loop: anomaly -> evidence gathering -> root cause -> affected accounts -> recommended actions -> approval-gated drafts.
-- Every important claim in the UI, API, final report, and eval output must be backed by cited SQL results, tickets, documents, or incident records.
+- Every important claim in the UI, API, final report, and eval output must be backed by cited SQL results, tickets, documents, incident records, or (when present) Stripe-derived billing evidence already normalized into Ledger records.
 - Never let the agent perform irreversible or external write actions without explicit approval. In the first version, all Slack, email, CRM, and task actions must be mocks.
 - Demo mutations are token-gated when `APP_ENV=demo`: `POST /incidents`, `POST /agent/investigations`, `POST /approvals/{id}/approve|reject`, `POST /mock-actions`, `POST /runs`, `POST /runs/{id}/transitions`, `POST /agents` and its version mutation routes (`POST /agents/{id}/versions`, `PATCH .../versions/{vid}`, `POST .../versions/{vid}/publish`), `POST /tools`, and `POST /eval-datasets` (including dataset runs) require `DEMO_OPERATOR_TOKEN`; `POST /evals/run` requires `EVAL_RUN_TOKEN`; `POST /documents/ingest` requires `DOCUMENT_INGEST_TOKEN`. Each gate uses `secrets.compare_digest` and fails closed when its token is unset in the `demo` env. Only the `DEMO_OPERATOR_TOKEN` gate opens in local/test/development; the `EVAL_RUN_TOKEN` and `DOCUMENT_INGEST_TOKEN` gates fail closed in every environment when their token is unset. Never disable the gates for a publicly accessible demo.
 - Treat seeded scenarios and eval cases as product-critical assets, not test fixtures of convenience.
 - Prefer deterministic analytics and explicit tool results before LLM summarization. The LLM should synthesize evidence, not invent the evidence.
-- Do not introduce real customer data or real third-party integrations unless the PRD is explicitly updated to allow them.
+- Do not introduce real customer data. Do not introduce third-party integrations beyond what `prd.md` explicitly permits.
+
+## Stripe sandbox boundary (optional evidence adapter)
+
+Stripe is **in scope only** as a narrow test-mode evidence adapter defined in `prd.md` (Stripe evidence boundary). It is not a general merchant platform.
+
+Allowed (when implemented in a later slice):
+
+- Test-mode only; no live credentials or real customer data.
+- Customers, subscriptions, and invoices ingestion into existing Ledger models.
+- Verified webhooks with signature checks, event-id uniqueness/idempotency, and out-of-order protection (re-fetch current objects when snapshots may be stale).
+- Bounded reconciliation for missed events.
+- Stripe Test Clock failed-renewal scenario feeding investigations with citations.
+- Stripe credentials and any Stripe-related mutations only outside the anonymous public deployment.
+
+Forbidden unless the PRD is updated again:
+
+- Checkout, refunds, payment collection, Connect, OAuth.
+- Any Stripe write actions beyond ingestion/reconciliation into Ledger records.
+- Live mode credentials or real customer data.
+- Exposing Stripe secrets via public client config, `NEXT_PUBLIC_*`, or the anonymous demo.
+
+Preserve existing evidence, eval, approval, audit, and demo-token gates whether or not Stripe is configured. The anonymous public demo remains read-only (`APP_ENV=demo` and operator gates unchanged).
 
 ## MVP Definition
 
@@ -29,7 +52,7 @@ Build the smallest credible system that can pass the PRD success criteria:
 
 - At least 5 seeded incident scenarios (the current seed includes 6 scenarios, including one ambiguity case).
 - At least 4 of 5 eval scenarios correctly identify the intended root cause.
-- Final reports cite SQL queries, support tickets, docs, or incidents for every major claim.
+- Final reports cite SQL queries, support tickets, docs, incidents, or (when present) Stripe-derived billing evidence for every major claim.
 - Approval requests block risky actions until approved or rejected.
 - Every agent run records step logs, trace identifiers when available, token/cost estimates, and the final report.
 
@@ -108,3 +131,10 @@ When the user asks to create a learning file for current changes:
 - Keep diffs small and behavior-oriented.
 - Prefer deleting unnecessary complexity over adding new layers.
 - If the implementation direction conflicts with these instructions, update the PRD and this file together so future agents do not inherit drift.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
