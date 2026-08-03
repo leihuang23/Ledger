@@ -14,7 +14,7 @@
 - LLM provider layer: OpenAI first, Anthropic-compatible abstraction later.
 - Testing: pytest, Playwright, seeded local eval cases persisted in the app
   database; hosted Langfuse datasets or LangSmith experiments can be added later.
-- Deployment: Docker Compose locally; Vercel for frontend; Render/Fly/Railway for backend.
+- Deployment: Docker Compose locally; Cloudflare Workers (via OpenNext) for frontend; Render/Fly/Railway for backend.
 
 ## PRD: Ledger
 

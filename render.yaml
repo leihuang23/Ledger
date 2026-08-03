@@ -1,5 +1,5 @@
 # Render Blueprint for the FastAPI API, Celery worker, Postgres, and Key Value.
-# The Next.js app is deployed separately from apps/web on Vercel.
+# The Next.js app is deployed separately from apps/web on Cloudflare Workers.
 
 services:
   - type: keyvalue

@@ -1,23 +1,25 @@
 # Deployment Guide
 
-The tracked production-shaped topology uses Vercel for the Next.js frontend and a Render Blueprint for the FastAPI API, Celery worker, Postgres/pgvector, and Redis-compatible Key Value service. It is a deployment template, not proof that a public environment currently exists.
+The tracked production-shaped topology uses Cloudflare Workers for the Next.js frontend and a Render Blueprint for the FastAPI API, Celery worker, Postgres/pgvector, and Redis-compatible Key Value service. The frontend is adapted with `@opennextjs/cloudflare`; the backend remains on Render. This is a deployment template, not proof that a public environment currently exists.
 
-**Public demo target origin:** `https://ledger.leihuang.me` (frontend) with the Render web service as the API origin (example hostname `https://ledger-api.onrender.com` after Blueprint create). If DNS uses a different hostname, update this document, `BACKEND_CORS_ORIGINS`, and the Vercel custom domain together so they stay exact matches.
+**Public demo target origin:** `https://ledger.leihuang.me` (Cloudflare Worker) with the Render web service as the API origin (`https://ledger-api.onrender.com` in the tracked Worker config). If the Render hostname changes, update `apps/web/wrangler.jsonc` and redeploy. The backend CORS value remains the exact browser origin `https://ledger.leihuang.me`.
 
-The provider configuration follows the current official [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render pgvector support](https://render.com/docs/postgresql-extensions), and [Vercel monorepo guidance](https://vercel.com/docs/monorepos).
+The provider configuration follows the current official [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render pgvector support](https://render.com/docs/postgresql-extensions), [OpenNext Cloudflare setup](https://opennext.js.org/cloudflare/get-started), and [Cloudflare Workers custom-domain configuration](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). OpenNext documents support for all Next.js 16 minor and patch releases. The tracked adapter version also declares a Next.js peer range of `>=16.2.11`, and the frontend is pinned within Next 16 above that floor.
 
 ## 0. Captain checklist: anonymous public read-only demo
 
-Use this when standing up or repairing the public read-only demo. Workers without Render/Vercel login cannot complete cloud steps; they can still prove the local `APP_ENV=demo` path (section 5).
+Use this when standing up or repairing the public read-only demo. Workers without Render or Cloudflare login cannot complete cloud steps; they can still prove the local `APP_ENV=demo` and OpenNext preview path (section 5).
 
 ### 0.1 DNS (Cloudflare for `leihuang.me`)
 
-Public resolvers currently return **NXDOMAIN** for `ledger.leihuang.me` (root `leihuang.me` already resolves via Cloudflare). Until DNS exists, browsers and TLS clients fail; a local proxy fake-IP (for example `198.18.0.0/15`) can look like a broken TLS handshake rather than NXDOMAIN.
+The `leihuang.me` zone already uses Cloudflare DNS. `apps/web/wrangler.jsonc` declares `ledger.leihuang.me` as a Worker Custom Domain. Cloudflare creates the DNS record and certificate when the production Worker is deployed, so do not create a CNAME to another frontend provider.
 
-1. In Cloudflare DNS for `leihuang.me`, create `ledger` as a **CNAME** to the Vercel target (`cname.vercel-dns.com` or the value Vercel shows for the project domain).
-2. Prefer DNS-only or follow Vercel’s Cloudflare guidance so certificate issuance succeeds.
-3. Confirm from a clean network: `dig +short ledger.leihuang.me @1.1.1.1` returns Vercel addresses (not NXDOMAIN, not `198.18.x.x`).
-4. Optional API hostname: either use the default `*.onrender.com` service URL or a separate CNAME if you add a custom domain on Render.
+1. In Cloudflare, confirm the `leihuang.me` zone and Workers account are in the same account selected by Wrangler.
+2. Remove or rename any conflicting `ledger` DNS record before the first production deploy. Do not delete an existing record until the cutover is authorized.
+3. From `apps/web`, run `npx wrangler whoami` and confirm the expected account non-interactively.
+4. Deploy with `npm run deploy`. Wrangler applies the `custom_domain: true` route from `wrangler.jsonc` and provisions TLS.
+5. Confirm from a clean network: `dig +short ledger.leihuang.me @1.1.1.1` resolves and `curl -I https://ledger.leihuang.me` reaches the Worker.
+6. Optional API hostname: either use the default `*.onrender.com` service URL or a separate custom domain on Render. Update both public API vars in `wrangler.jsonc` if it changes.
 
 ### 0.2 Render backend (Blueprint from `render.yaml`)
 
@@ -37,31 +39,40 @@ Public resolvers currently return **NXDOMAIN** for `ledger.leihuang.me` (root `l
    - `OBSERVABILITY_FULL_PAYLOADS=false`
    - No Stripe live/test secrets required for the anonymous public surface
 7. Wait until `GET https://<api-host>/ready` returns 200. Startup runs Alembic and seeds an empty demo DB under an advisory lock.
-8. Note the public API base URL for Vercel (`https://ledger-api.onrender.com` or the custom API host).
+8. Confirm the public API base URL matches both Worker vars in `apps/web/wrangler.jsonc` (`https://ledger-api.onrender.com` by default).
 
 Why the Blueprint sets `ALLOW_UNSAFE_BOOTSTRAP_SEED=true`: a managed Postgres hostname is intentionally rejected by the local-only seed safety check. Startup seeding still occurs only when the accounts table is empty. Destructive CLI reseeding continues to require the explicit `--allow-destructive` flag.
 
 The API accepts Render's `postgresql://` connection string and normalizes it to SQLAlchemy's installed `postgresql+psycopg://` driver. The container also honors Render's `PORT` value.
 
-### 0.3 Vercel frontend (`apps/web`)
+### 0.3 Cloudflare Workers frontend (`apps/web`)
 
-1. Import the same repository; set project **Root Directory** to `apps/web` (reads `apps/web/vercel.json`).
-2. Add the custom domain `ledger.leihuang.me` and finish DNS as in 0.1.
-3. Production / Preview env for the **anonymous public** project:
+1. Use Node.js 22 or newer, then run `npm ci` from `apps/web`.
+2. Inspect `wrangler.jsonc`. Production uses Worker `ledger-web`, disables `workers.dev`, and attaches the custom domain `ledger.leihuang.me`. The `preview` Wrangler environment deploys `ledger-web-preview` to a `workers.dev` URL without the production route.
+3. Keep these non-sensitive public demo values under `vars` in both the top-level and `env.preview` config:
 
 | Variable | Public demo value | Notes |
 | --- | --- | --- |
-| `API_INTERNAL_BASE_URL` | Public Render API base URL | Server-side fetch base |
-| `NEXT_PUBLIC_API_BASE_URL` | Same public Render API base URL | Browser-visible API origin only; not a secret |
+| `API_INTERNAL_BASE_URL` | `https://ledger-api.onrender.com` | Server-side Worker fetch base; replace if Render assigns a different URL |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://ledger-api.onrender.com` | Browser-visible API origin; embedded during build and not a secret |
 | `OPERATOR_UI_ENABLED` | `false` | Required for anonymous public demo |
 
-4. **Do not set** on the anonymous public Vercel project:
+The same three public values also live in the tracked `apps/web/.env.production`, which `next build` reads to inline `NEXT_PUBLIC_API_BASE_URL` into the browser bundle. Keep it in sync with the `vars` above.
+
+4. Build with `npm run build:cloudflare`. This runs the existing Next.js Webpack build and adapts `.next` into `.open-next`.
+5. Serve the adapted Worker locally with `npm run preview`, or deploy a non-production Worker with `npm run deploy:preview`. The preview environment explicitly sets `routes: []`, so it cannot inherit or reassign the production custom domain.
+6. Before a cloud build or deploy, use a clean checkout, or remove the ignored local overrides `.dev.vars` and `.env.production.local`. Wrangler loads `.dev.vars` for local development, and Next loads `.env.production.local` ahead of the tracked `.env.production`; local values must not override the checked-in Render origins during a cloud build.
+7. Deploy production with `npm run deploy`. The checked-in custom-domain route makes the Worker the frontend hosting path.
+8. **Do not set** on the anonymous public Worker:
    - `DEMO_OPERATOR_TOKEN`, `EVAL_RUN_TOKEN`, `DOCUMENT_INGEST_TOKEN`
    - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, Langfuse/LangSmith secrets
    - Any Stripe secret or publishable key
    - Any secret under a `NEXT_PUBLIC_*` name
-5. Deploy Production, then re-check Render `BACKEND_CORS_ORIGINS` if the final origin differs.
-6. Optional private recording deployment: enable Vercel Deployment Protection first, then a **separate** protected project/env may set `OPERATOR_UI_ENABLED=true` and server-only operator/eval tokens. Never on the public project.
+9. After deploy, verify Render still has exactly `BACKEND_CORS_ORIGINS=https://ledger.leihuang.me`.
+
+`wrangler.jsonc` `vars` are checked-in, non-encrypted configuration that OpenNext exposes through `process.env` at Worker runtime (server-side). The browser cannot read Worker vars, so `NEXT_PUBLIC_API_BASE_URL` is also declared in the tracked `apps/web/.env.production`: `next build` reads that file and inlines the value into the browser bundle. Because the value is baked in at build time, `NEXT_PUBLIC_API_BASE_URL` requires a rebuild after it changes. For local preview, copy `.dev.vars.example` to ignored `.dev.vars` and to ignored `.env.production.local`; both contain only local public values.
+
+Cloudflare secrets are encrypted bindings set with `npx wrangler secret put NAME`, and local secrets belong only in ignored `.dev.vars`. The anonymous Worker needs no secrets, so do not create any for it. A future protected operator surface must be a separate authenticated Worker and security review; never add its tokens to this public Worker or to `NEXT_PUBLIC_*`.
 
 ### 0.4 Post-deploy public verification
 
@@ -88,19 +99,20 @@ Manual public verification:
 
 The demo database is seeded with these synthetic audit surfaces automatically in `APP_ENV=demo` (`app/seed.py`, `_seed_demo_audit_surfaces`): seven deterministic runs, five approval requests spanning all decision states, and eval results for every published agent version so the studio comparison is never empty. They are read-only demo artifacts, disclosed as synthetic; anonymous mutations still fail closed at 403.
 
-### 0.5 Captain actions still required when worker is unauthenticated
+### 0.5 Captain actions still required when cloud CLIs are unauthenticated
 
-If `vercel` / `render` CLIs are missing or not logged in, and GitHub has no deployment credentials, the worker stops after in-repo proof with this captain list:
+If Wrangler or Render is not logged in non-interactively, stop after the in-repo proof with this captain list:
 
 | # | Action | Where |
 | --- | --- | --- |
-| 1 | Create Cloudflare DNS `ledger` CNAME → Vercel | Cloudflare DNS |
-| 2 | Apply `render.yaml` Blueprint; copy API URL | Render |
-| 3 | Set `BACKEND_CORS_ORIGINS=https://ledger.leihuang.me` | Render API env |
-| 4 | Create Vercel project root `apps/web`; set API URL envs; `OPERATOR_UI_ENABLED=false` | Vercel |
-| 5 | Attach domain `ledger.leihuang.me`; wait for cert | Vercel + Cloudflare |
-| 6 | Run `./scripts/verify-public-demo.sh` with public URLs | Any clean network |
-| 7 | Keep generated tokens server-only; never in public Vercel or git | Render / 1Password |
+| 1 | Apply `render.yaml`; wait for `/ready`; confirm the actual public API URL | Render |
+| 2 | Set `BACKEND_CORS_ORIGINS=https://ledger.leihuang.me` exactly | Render API env |
+| 3 | Update both `wrangler.jsonc` API vars if the Render URL differs; rebuild and revalidate | Repo |
+| 4 | Confirm Wrangler selects the Cloudflare account that owns the `leihuang.me` zone | Cloudflare CLI |
+| 5 | Resolve any existing `ledger` DNS conflict, then run `npm run deploy` from `apps/web` | Cloudflare Workers |
+| 6 | Confirm TLS and the custom domain, then run `./scripts/verify-public-demo.sh` with public URLs | Any clean network |
+| 7 | Run the read-only Playwright suite against `https://ledger.leihuang.me` | Any clean network |
+| 8 | Keep generated backend tokens server-only; never put them in Worker vars, secrets, client config, or git | Render / secret manager |
 
 ## 1. Create the Render backend
 
@@ -108,13 +120,13 @@ See section 0.2 for the public-demo checklist. Summary:
 
 1. Connect the repository to Render and create a Blueprint from `render.yaml`.
 2. Review the instance plans before applying the Blueprint.
-3. Enter `BACKEND_CORS_ORIGINS` when Render prompts for it (exact Vercel production origin).
+3. Enter `BACKEND_CORS_ORIGINS` when Render prompts for it (exact Cloudflare Worker production origin).
 4. Let the API become ready at `/ready`.
 5. Confirm generated `DEMO_OPERATOR_TOKEN`, `EVAL_RUN_TOKEN`, and `DOCUMENT_INGEST_TOKEN` in the API service only.
 
-## 2. Create the Vercel frontend
+## 2. Create the Cloudflare Workers frontend
 
-See section 0.3. Root Directory must be `apps/web`. Public demo deployments stay read-only: every server action rejects before forwarding credentials when `OPERATOR_UI_ENABLED` is not exactly `true`.
+See section 0.3. Run all frontend deployment commands from `apps/web`. Public demo deployments stay read-only: every server action rejects before forwarding credentials when `OPERATOR_UI_ENABLED` is not exactly `true`. The former `apps/web/vercel.json` has been removed; Vercel is no longer a tracked hosting path.
 
 ## 3. Optional hosted providers
 
@@ -162,7 +174,7 @@ Prefer `./scripts/verify-public-demo.sh` (section 0.4). Manual checklist without
 
 1. `GET /health` returns a live process response.
 2. `GET /ready` proves database connectivity.
-3. The Vercel landing page loads revenue evidence and the Agents/Tools navigation.
+3. The Cloudflare Worker landing page loads revenue evidence and the Agents/Tools navigation.
 4. The public web deployment shows the read-only banner and rejects direct server-action mutation attempts without changing API state.
 5. In a separately protected operator deployment, a server action with the configured token can launch a run.
 6. The Celery worker moves the run out of `queued` and records steps.
@@ -172,24 +184,36 @@ Prefer `./scripts/verify-public-demo.sh` (section 0.4). Manual checklist without
 
 ## 5. Local public-demo proof (no cloud credentials)
 
-Mirrors anonymous production gates with compose:
+Run the Render-shaped backend with Compose and the frontend through the OpenNext Worker preview. Use separate terminals for the preview and verification commands:
 
 ```bash
 cp .env.public-demo.example .env.public-demo
-docker compose --env-file .env.public-demo up -d --build
-# wait until api + web healthy
+BACKEND_CORS_ORIGINS=http://localhost:8787 \
+  docker compose --env-file .env.public-demo up -d --build postgres redis api worker
+# wait until the API is healthy
 # If a local HTTP proxy (Surge/Clash) intercepts localhost, clear proxy env vars:
 #   env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy ...
-# If another process already binds 127.0.0.1:8000, prefer IPv6 host ports Docker publishes:
-#   API_BASE_URL='http://[::1]:8000' WEB_BASE_URL='http://[::1]:3000'
-API_BASE_URL=http://localhost:8000 WEB_BASE_URL=http://localhost:3000 REQUIRE_WEB=true \
+# If another process already binds 127.0.0.1:8000, use the reachable Docker host port below.
+cd apps/web
+npm ci
+cp .dev.vars.example .dev.vars
+cp .dev.vars.example .env.production.local
+npm run preview
+
+# In another terminal, from the repository root:
+API_BASE_URL=http://localhost:8000 WEB_BASE_URL=http://localhost:8787 REQUIRE_WEB=true \
   ./scripts/verify-public-demo.sh
-cd apps/web && npm ci && npx playwright install chromium
+cd apps/web
+npx playwright install chromium
 PLAYWRIGHT_EXPECT_READ_ONLY=true \
-PLAYWRIGHT_BASE_URL=http://localhost:3000 \
+PLAYWRIGHT_BASE_URL=http://localhost:8787 \
 PLAYWRIGHT_API_BASE_URL=http://localhost:8000 \
   npm run test:e2e:public-demo
 ```
+
+The gitignored `.env.production.local` overrides the tracked `apps/web/.env.production`, so the local preview's browser bundle targets `http://localhost:8000` instead of the Render origin. Remove it (with `.dev.vars`) before a cloud build or deploy.
+
+For a strict local CORS proof, also pass `STRICT_CORS=true EXPECTED_ORIGIN=http://localhost:8787` to `verify-public-demo.sh`. The production value must still be exactly `https://ledger.leihuang.me`.
 
 Operator-mode Playwright (mutations) still uses default compose env with `OPERATOR_UI_ENABLED=true` and the existing full suite (`npm run test:e2e`).
 
@@ -197,7 +221,7 @@ CI job `public-demo-readonly` in `.github/workflows/e2e.yml` runs the verify scr
 
 ## Environment variable reference
 
-The complete no-secret samples live in `.env.example`, `.env.public-demo.example`, `apps/api/.env.example`, and `apps/web/.env.example`.
+The complete no-secret samples live in `.env.example`, `.env.public-demo.example`, `apps/api/.env.example`, `apps/web/.env.example`, and `apps/web/.dev.vars.example`.
 
 - `APP_ENV=demo` activates fail-closed mutation gates.
 - `DEMO_OPERATOR_TOKEN` gates agent/version/tool/run/approval/mock-action mutations.

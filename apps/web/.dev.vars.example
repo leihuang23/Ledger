@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local OpenNext preview. These values are public config,
+# not secrets. Keep all operator, eval, ingest, model, and Stripe secrets absent.
+NEXTJS_ENV=production
+API_INTERNAL_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+OPERATOR_UI_ENABLED=false

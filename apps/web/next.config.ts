@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { initOpenNextCloudflareForDev } from '@opennextjs/cloudflare';
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
@@ -28,3 +29,12 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+// The OpenNext Cloudflare dev integration spins up a local workerd instance to
+// provide the Cloudflare runtime context. It is only needed by `next dev`; in
+// production (`next build` / `next start`) workerd must not be spawned, because
+// the standard Node server serves the app and the binary is not available on
+// every runtime (e.g. Alpine/musl Docker images).
+if (process.env.NODE_ENV === 'development') {
+  initOpenNextCloudflareForDev();
+}

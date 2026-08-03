@@ -148,8 +148,8 @@ and endpoint reference: [docs/deployment.md](deployment.md#optional-stripe-test-
 
 ## Deployment Verification
 
-- Deploy the frontend to Vercel or an equivalent web host.
-- Deploy the backend to Render, Fly, Railway, or an equivalent service with Postgres/pgvector and Redis configured.
+- Deploy the frontend to Cloudflare Workers with the tracked OpenNext config.
+- Deploy the backend to Render with Postgres/pgvector and Redis configured.
 - Run Alembic migrations and seed only the synthetic demo dataset.
 - Confirm the deployed frontend can reach the deployed backend through `NEXT_PUBLIC_API_BASE_URL` and server-side `API_INTERNAL_BASE_URL`.
 

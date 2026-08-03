@@ -17,7 +17,7 @@ def test_render_blueprint_wires_demo_safety_and_managed_dependencies() -> None:
     assert "DEMO_OPERATOR_TOKEN" in blueprint
     assert "EVAL_RUN_TOKEN" in blueprint
     assert "OBSERVABILITY_FULL_PAYLOADS" in blueprint
-    assert "value: \"false\"" in blueprint
+    assert 'value: "false"' in blueprint
     assert "healthCheckPath: /ready" in blueprint
 
 
@@ -31,14 +31,27 @@ def test_api_container_honors_host_port_contract() -> None:
     assert "CMD-SHELL" not in dockerfile
 
 
-def test_vercel_config_declares_nextjs_project_contract() -> None:
-    config = ROOT.joinpath("apps/web/vercel.json").read_text(encoding="utf-8")
+def test_cloudflare_worker_config_declares_public_demo_contract() -> None:
+    worker_config = ROOT.joinpath("apps/web/wrangler.jsonc").read_text(encoding="utf-8")
     next_config = ROOT.joinpath("apps/web/next.config.ts").read_text(encoding="utf-8")
 
-    assert '"$schema": "https://openapi.vercel.sh/vercel.json"' in config
-    assert '"framework": "nextjs"' in config
+    assert '"main": ".open-next/worker.js"' in worker_config
+    assert '"pattern": "ledger.leihuang.me"' in worker_config
+    assert '"custom_domain": true' in worker_config
+    assert '"OPERATOR_UI_ENABLED": "false"' in worker_config
+    assert (
+        '"NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com"' in worker_config
+    )
     assert "poweredByHeader: false" in next_config
     assert "Strict-Transport-Security" in next_config
+    assert "DEMO_OPERATOR_TOKEN" not in worker_config
+    assert "EVAL_RUN_TOKEN" not in worker_config
+    assert "DOCUMENT_INGEST_TOKEN" not in worker_config
+    assert "STRIPE" not in worker_config
+
+    # The active Vercel configuration was removed when the frontend moved to
+    # Cloudflare Workers; the tracked config is apps/web/wrangler.jsonc.
+    assert not ROOT.joinpath("apps/web/vercel.json").exists()
 
 
 def test_phase6_release_package_contains_required_artifacts() -> None:
