@@ -39,7 +39,7 @@ This is a portfolio demo with synthetic data. Its public surface is read-only; a
 - A tool is callable only when its id is enabled and its fixed scope is allowed by the published version.
 - Blocked calls persist as visible failed/blocked run steps with a reason.
 - High-risk actions remain pending until an operator decision; rejected actions are terminal.
-- Project scope explicitly excludes real email, Slack, CRM, and payment integrations.
+- Project scope excludes real (live-mode) email, Slack, CRM, and payment integrations; the only third-party surface permitted by `prd.md` is the narrow Stripe test-mode evidence adapter (ingestion only, never live credentials, no external writes).
 
 ### Vector and embedding weaknesses
 
