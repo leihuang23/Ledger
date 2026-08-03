@@ -4,7 +4,7 @@ This repository is for Ledger, a production-shaped SaaS revenue and support oper
 
 ## Critical Product Read
 
-The project idea is strong because it demonstrates the hard parts of agentic software that hiring managers and technical reviewers actually care about: cross-source investigation, evidence-backed claims, constrained actions, run traces, and evals. The demo prompt, "MRR dropped this week," is a good anchor because it is concrete, business-relevant, and naturally requires analytics plus support context.
+The project idea is strong because it demonstrates the hard parts of agentic software that technical reviewers care about: cross-source investigation, evidence-backed claims, constrained actions, run traces, and evals. The demo prompt, "MRR dropped this week," is a good anchor because it is concrete, business-relevant, and naturally requires analytics plus support context.
 
 The main risk is scope inflation. The recommended stack is credible but heavy for a first pass: Next.js, FastAPI, PostgreSQL, pgvector, Redis, LangGraph, provider-backed observability, Celery, Docker, and split deployment can easily become infrastructure theater before the agent proves anything. Prefer a narrow, verified system over a broad, half-working one.
 
@@ -15,7 +15,7 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 ## Product Guardrails
 
 - Optimize for a reviewer evaluating engineering judgment, not for a flashy agent demo.
-- Honest positioning: Ledger is a production-shaped portfolio system that demonstrates investigation, cited evidence, auditable run traces, and approval-gated risky actions. Disclose synthetic data, optional Stripe test-mode sandbox evidence, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval. Do not imply merchant adoption or live commerce.
+- Honest positioning: Ledger is a production-shaped demonstration system that shows investigation, cited evidence, auditable run traces, and approval-gated risky actions. Disclose synthetic data, optional Stripe test-mode sandbox evidence, read-only public demo, deterministic classifier as source of truth, and mock external actions behind approval. Do not imply merchant adoption or live commerce.
 - Keep the first version focused on the primary investigation loop: anomaly -> evidence gathering -> root cause -> affected accounts -> recommended actions -> approval-gated drafts.
 - Every important claim in the UI, API, final report, and eval output must be backed by cited SQL results, tickets, documents, incident records, or (when present) Stripe-derived billing evidence already normalized into Ledger records.
 - Never let the agent perform irreversible or external write actions without explicit approval. In the first version, all Slack, email, CRM, and task actions must be mocks.

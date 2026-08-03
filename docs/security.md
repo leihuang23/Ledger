@@ -1,6 +1,6 @@
 # Security Model and OWASP LLM Risk Mapping
 
-This is a portfolio demo with synthetic data. Its public surface is read-only; a separately protected single-operator deployment can enable mutations for recordings. Its primary security objective is to prove constrained agent execution and auditable approvals, not to claim enterprise identity or tenant isolation.
+This is a public read-only demo with synthetic data. Its public surface is read-only; a separately protected single-operator deployment can enable mutations for recordings. Its primary security objective is to prove constrained agent execution and auditable approvals, not to claim enterprise identity or tenant isolation.
 
 ## Trust boundaries
 
@@ -21,7 +21,7 @@ This is a portfolio demo with synthetic data. Its public surface is read-only; a
 
 ### Sensitive information disclosure
 
-- All seeded records are synthetic and clearly portfolio data.
+- All seeded records are synthetic and clearly demo data.
 - API/provider keys and mutation tokens are server-only environment variables.
 - `OBSERVABILITY_FULL_PAYLOADS=false` is the default and the Render Blueprint preserves it.
 - Error envelopes return request ids, not stack traces or secrets.
@@ -67,7 +67,7 @@ This is a portfolio demo with synthetic data. Its public surface is read-only; a
 
 ## Deployment checklist
 
-- Keep `APP_ENV=demo` on any public portfolio deployment.
+- Keep `APP_ENV=demo` on any public demo deployment.
 - Keep `OPERATOR_UI_ENABLED=false` and omit operator/eval tokens from anonymous public frontend deployments.
 - Enable the operator UI and copy server-only tokens only after deployment authentication protects the whole frontend.
 - Set non-empty, independent operator, eval, and ingestion tokens.

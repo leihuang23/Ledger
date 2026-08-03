@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --reporter=dot",
     "test:e2e:public-demo": "playwright test e2e/read-only-demo.spec.ts e2e/public-demo-browse.spec.ts",
-    "portfolio:assets": "node scripts/capture-portfolio-assets.mjs"
+    "demo:assets": "node scripts/capture-demo-assets.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

@@ -138,12 +138,12 @@ test('public server-rendered mutation controls are read-only while GET review fo
   assert.doesNotMatch(evalCompareForm, /disabled=\{!mutationsEnabled/);
 });
 
-test('stateful portfolio suite disables retries at suite scope', () => {
-  const source = readWorkspaceFile('e2e/portfolio-readiness.spec.ts');
+test('stateful demo suite disables retries at suite scope', () => {
+  const source = readWorkspaceFile('e2e/demo-readiness.spec.ts');
 
   assert.match(source, /test\.describe\.serial/);
   assert.match(source, /test\.describe\.configure\(\{ retries: 0 \}\)/);
-  assert.match(source, /mutates one shared portfolio environment/);
+  assert.match(source, /mutates one shared demo environment/);
 });
 
 test('eval studio exposes datasets, per-version runs, results, and regression comparison', () => {
