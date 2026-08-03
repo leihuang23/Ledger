@@ -1,19 +1,19 @@
-# Recruiter Walkthrough (2-3 minutes)
+# Short Walkthrough (2-3 minutes)
 
-Narration track for the short portfolio cut:
+Narration track for the short walkthrough cut:
 
 | Asset | Path |
 | --- | --- |
-| Silent screen cut | [`docs/assets/ledger-walkthrough-recruiter.webm`](assets/ledger-walkthrough-recruiter.webm) (~136s) |
-| Captions (WebVTT) | [`docs/assets/ledger-walkthrough-recruiter.vtt`](assets/ledger-walkthrough-recruiter.vtt) |
+| Silent screen cut | [`docs/assets/ledger-walkthrough-short.webm`](assets/ledger-walkthrough-short.webm) (~136s) |
+| Captions (WebVTT) | [`docs/assets/ledger-walkthrough-short.vtt`](assets/ledger-walkthrough-short.vtt) |
 | Full five-minute reference | [`docs/demo-script.md`](demo-script.md) + [`docs/assets/ledger-walkthrough.webm`](assets/ledger-walkthrough.webm) (~196s) |
 
 ## Honest packaging notes
 
 - The WebM is a **trimmed silent screen capture** from the existing Phase 6 Playwright recording. It is **not** a new voiceover recording.
 - Do **not** claim a human VO exists on the file unless you record one separately against this script.
-- Captions carry the full recruiter narrative so the piece works muted.
-- All UI data is **synthetic seeded portfolio data**, not customer production data.
+- Captions carry the full narrative so the piece works muted.
+- All UI data is **synthetic seeded data**, not customer production data.
 - Stripe appears only as an **optional test-mode evidence feed** in narration; it is not required for the demo path and is not shown as a live merchant platform.
 
 Spoken length at a normal pace is about **2 minutes 20 seconds to 2 minutes 40 seconds** (~360 words). Match the visual segments below; pause on dense UI rather than racing the captions.
@@ -67,7 +67,7 @@ Spoken length at a normal pace is about **2 minutes 20 seconds to 2 minutes 40 s
 >
 > Optional later: a Stripe test-mode evidence adapter can feed customers, subscriptions, and invoices into the same Ledger models. Test-mode only, ingestion only, no live credentials, no checkout or refunds, and never required for the public read-only demo.
 >
-> The portfolio claim is not that the model sounds smart. It is that the system gathers the right evidence, cites it, gates risky actions, records an auditable trace, and catches behavioral regressions before release.”
+> The engineering claim is not that the model sounds smart. It is that the system gathers the right evidence, cites it, gates risky actions, records an auditable trace, and catches behavioral regressions before release.”
 
 ## Word count and pacing
 
@@ -85,7 +85,7 @@ If a recorded VO must finish inside the ~136s silent cut, trim Stripe to one sen
 
 ## Re-export commands
 
-Regenerate the short cut after a new full capture (`cd apps/web && npm run portfolio:assets`):
+Regenerate the short cut after a new full capture:
 
 ```bash
 # Requires ffmpeg. Source is silent; this only trims/concatenates frames.
@@ -100,18 +100,18 @@ ffmpeg -y -i docs/assets/ledger-walkthrough.webm -filter_complex "\
 [0:v]trim=start=168:end=195.84,setpts=PTS-STARTPTS[v7];\
 [v0][v1][v2][v3][v4][v5][v6][v7]concat=n=8:v=1:a=0[outv]" \
   -map "[outv]" -c:v libvpx -b:v 1M -deadline good -cpu-used 2 -auto-alt-ref 0 \
-  docs/assets/ledger-walkthrough-recruiter.webm
+  docs/assets/ledger-walkthrough-short.webm
 ```
 
-If the full recording’s scene timings change, re-map source ranges before re-running, then retarget cue times in `ledger-walkthrough-recruiter.vtt`.
+If the full recording’s scene timings change, re-map source ranges before re-running, then retarget cue times in `ledger-walkthrough-short.vtt`.
 
 Optional: burn captions for a shareable file (does not replace the sidecar VTT):
 
 ```bash
-ffmpeg -y -i docs/assets/ledger-walkthrough-recruiter.webm \
-  -vf "subtitles=docs/assets/ledger-walkthrough-recruiter.vtt:force_style='FontSize=18,Outline=1'" \
+ffmpeg -y -i docs/assets/ledger-walkthrough-short.webm \
+  -vf "subtitles=docs/assets/ledger-walkthrough-short.vtt:force_style='FontSize=18,Outline=1'" \
   -c:v libvpx -b:v 1M -auto-alt-ref 0 \
-  docs/assets/ledger-walkthrough-recruiter-captioned.webm
+  docs/assets/ledger-walkthrough-short-captioned.webm
 ```
 
 ## Optional human voiceover (separate artifact)
@@ -122,9 +122,9 @@ If the captain records a VO later:
 2. Mux without inventing that the stock WebM already contains speech:
 
 ```bash
-ffmpeg -y -i docs/assets/ledger-walkthrough-recruiter.webm -i path/to/vo.wav \
+ffmpeg -y -i docs/assets/ledger-walkthrough-short.webm -i path/to/vo.wav \
   -c:v copy -c:a libopus -shortest \
-  docs/assets/ledger-walkthrough-recruiter-vo.webm
+  docs/assets/ledger-walkthrough-short-vo.webm
 ```
 
-Keep the silent cut and VTT as the default portfolio package until that mux exists.
+Keep the silent cut and VTT as the default walkthrough package until that mux exists.

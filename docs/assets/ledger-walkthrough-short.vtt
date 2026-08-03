@@ -1,8 +1,8 @@
 WEBVTT
 
-NOTE Ledger recruiter walkthrough captions for docs/assets/ledger-walkthrough-recruiter.webm
+NOTE Ledger short walkthrough captions for docs/assets/ledger-walkthrough-short.webm
 NOTE Silent screen cut (~136s) from Phase 6 capture; captions are the narrative track.
-NOTE Synthetic seeded portfolio data only. Stripe is optional test-mode evidence feed.
+NOTE Synthetic seeded data only. Stripe is an optional test-mode evidence feed.
 
 00:00.000 --> 00:05.500
 Ledger: a production-shaped SaaS revenue investigation agent.

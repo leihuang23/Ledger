@@ -2,7 +2,7 @@
 
 This script is the narration track for `docs/assets/ledger-walkthrough.webm`. It uses only synthetic seeded data and the local deterministic execution path, so a reviewer can reproduce the same evidence without API keys.
 
-**Recruiter cut (2-3 minutes):** use [`docs/demo-script-recruiter.md`](demo-script-recruiter.md) with [`docs/assets/ledger-walkthrough-recruiter.webm`](assets/ledger-walkthrough-recruiter.webm) and captions in [`docs/assets/ledger-walkthrough-recruiter.vtt`](assets/ledger-walkthrough-recruiter.vtt). The short file is a silent trim of this full capture, not a new voiceover recording. Keep this five-minute script as the deeper reference.
+**Short cut (2-3 minutes):** use [`docs/demo-script-short.md`](demo-script-short.md) with [`docs/assets/ledger-walkthrough-short.webm`](assets/ledger-walkthrough-short.webm) and captions in [`docs/assets/ledger-walkthrough-short.vtt`](assets/ledger-walkthrough-short.vtt). The short file is a silent trim of this full capture, not a new voiceover recording. Keep this five-minute script as the deeper reference.
 
 ## Before the recording
 
