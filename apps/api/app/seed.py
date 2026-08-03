@@ -896,7 +896,6 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         scenario: incident_id_for_scenario(scenario, anomaly_id)
         for scenario in SCENARIOS
     }
-    now = datetime.now(UTC).replace(tzinfo=None)
     anchor = DATASET_ANCHOR.replace(tzinfo=None)
 
     # Completed run on the headline checkout-retry incident: full step timeline,
@@ -912,10 +911,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=2),
         updated_at=anchor + timedelta(hours=2, minutes=24),
         confidence="high",
-        report_offset_hours=2,
         tokens=(1420, 380),
         cost=0.021,
-        now=now,
     )
     _demo_audit_actions(
         session,
@@ -935,10 +932,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=3),
         updated_at=anchor + timedelta(hours=3, minutes=19),
         confidence="medium",
-        report_offset_hours=3,
         tokens=(1180, 310),
         cost=0.017,
-        now=now,
     )
     _demo_audit_actions(
         session,
@@ -958,10 +953,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=4),
         updated_at=anchor + timedelta(hours=4, minutes=16),
         confidence="low",
-        report_offset_hours=4,
         tokens=(960, 240),
         cost=0.013,
-        now=now,
     )
     _demo_audit_actions(
         session,
@@ -983,10 +976,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=5),
         updated_at=anchor + timedelta(hours=5, minutes=9),
         confidence="low",
-        report_offset_hours=5,
         tokens=(0, 0),
         cost=0.0,
-        now=now,
         fail_sequence=3,
     )
 
@@ -1004,10 +995,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=6),
         updated_at=anchor + timedelta(hours=6, minutes=15),
         confidence="high",
-        report_offset_hours=6,
         tokens=(1320, 340),
         cost=0.019,
-        now=now,
     )
     eval_degraded_run = _demo_audit_run(
         session,
@@ -1020,10 +1009,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=7),
         updated_at=anchor + timedelta(hours=7, minutes=18),
         confidence="medium",
-        report_offset_hours=7,
         tokens=(1080, 260),
         cost=0.015,
-        now=now,
         blocked_sequences={5},
     )
 
@@ -1041,10 +1028,8 @@ def _seed_demo_audit_surfaces(session: Session) -> None:
         created_at=anchor + timedelta(hours=8),
         updated_at=anchor + timedelta(hours=8, minutes=14),
         confidence="high",
-        report_offset_hours=8,
         tokens=(1240, 300),
         cost=0.018,
-        now=now,
     )
 
     session.add_all(_demo_audit_eval_results(
@@ -1112,10 +1097,8 @@ def _demo_audit_run(
     created_at: datetime,
     updated_at: datetime,
     confidence: str,
-    report_offset_hours: int,
     tokens: tuple[int, int],
     cost: float,
-    now: datetime,
     fail_sequence: int | None = None,
     blocked_sequences: set[int] | None = None,
 ) -> AgentRun:
@@ -1125,7 +1108,8 @@ def _demo_audit_run(
         incident_id=incident_id,
         scenario=scenario,
         confidence=confidence,
-        generated_offset_hours=report_offset_hours,
+        completed_at=completed_at,
+        search_docs_blocked=bool(blocked_sequences and 5 in blocked_sequences),
     )
     run = AgentRun(
         id=run_id,
@@ -1170,7 +1154,7 @@ def _demo_audit_run(
             report=report,
             fail_sequence=fail_sequence,
             blocked_sequences=blocked_sequences,
-            now=now,
+            created_at=created_at,
         )
     )
     return run
@@ -1186,7 +1170,7 @@ def _demo_audit_steps(
     report: dict[str, Any],
     fail_sequence: int | None,
     blocked_sequences: set[int] | None,
-    now: datetime,
+    created_at: datetime,
 ) -> list[AgentRunStep]:
     incident = session.get(Incident, incident_id)
     evidence = incident.evidence if incident is not None else {}
@@ -1246,7 +1230,7 @@ def _demo_audit_steps(
                 blocked_reason=blocked_reason,
                 started_at=step_start,
                 completed_at=step_end if status in ("succeeded", "blocked") else step_start,
-                created_at=now,
+                created_at=created_at,
             )
         )
         # A failed tool step ends the investigation; later stages never run.
@@ -1361,7 +1345,8 @@ def _demo_audit_report(
     incident_id: str,
     scenario: str,
     confidence: str,
-    generated_offset_hours: int,
+    completed_at: datetime,
+    search_docs_blocked: bool = False,
 ) -> dict[str, Any]:
     """Build a deterministic, evidence-citing final report for a seeded run."""
     from app.agent.schemas import (
@@ -1403,15 +1388,16 @@ def _demo_audit_report(
         )
         for query in source_queries[:2]
     ]
-    cited_evidence.append(
-        ReportEvidence(
-            kind="document",
-            title="Incident runbook",
-            summary=f"Retrieved internal runbook {doc_id}.",
-            reference_id=doc_id,
-            citation={"document_id": doc_id},
+    if not search_docs_blocked:
+        cited_evidence.append(
+            ReportEvidence(
+                kind="document",
+                title="Incident runbook",
+                summary=f"Retrieved internal runbook {doc_id}.",
+                reference_id=doc_id,
+                citation={"document_id": doc_id},
+            )
         )
-    )
     for ticket_id in (evidence.get("support_ticket_ids") or [])[:2]:
         cited_evidence.append(
             ReportEvidence(
@@ -1425,33 +1411,43 @@ def _demo_audit_report(
 
     refs = [item.reference_id for item in cited_evidence]
     recommended = list(SCENARIOS[scenario].get("recommended_actions") or [])
-    if not recommended:
-        recommended = ["Repair the failing renewal flow"]
+    claims = [
+        ReportClaim(
+            category="root_cause",
+            text=str(SCENARIOS[scenario]["root_cause"]),
+            citation_refs=refs[:2],
+        ),
+        ReportClaim(
+            category="impact",
+            text=f"{len(affected_accounts)} affected accounts with failed renewal evidence.",
+            citation_refs=refs,
+        ),
+    ]
+    if recommended:
+        claims.append(
+            ReportClaim(
+                category="recommendation",
+                text="Proposed approval-gated follow-up actions.",
+                citation_refs=[],
+            )
+        )
+    else:
+        claims.append(
+            ReportClaim(
+                category="uncertainty",
+                text="Evidence is insufficient to recommend a concrete repair; further investigation is required.",
+                citation_refs=refs[:2],
+            )
+        )
     report = InvestigationReport(
         root_cause=str(SCENARIOS[scenario]["root_cause"]),
         summary=f"{incident.title}: {SCENARIOS[scenario]['root_cause']}",
         affected_accounts=affected_accounts,
         cited_evidence=cited_evidence,
-        claims=[
-            ReportClaim(
-                category="root_cause",
-                text=str(SCENARIOS[scenario]["root_cause"]),
-                citation_refs=refs[:2],
-            ),
-            ReportClaim(
-                category="impact",
-                text=f"{len(affected_accounts)} affected accounts with failed renewal evidence.",
-                citation_refs=refs,
-            ),
-            ReportClaim(
-                category="recommendation",
-                text="Proposed approval-gated follow-up actions.",
-                citation_refs=[],
-            ),
-        ],
+        claims=claims,
         confidence=confidence,  # type: ignore[arg-type]
         next_actions=recommended,
-        generated_at=incident.detected_at + timedelta(hours=generated_offset_hours),
+        generated_at=completed_at,
     )
     return report.model_dump(mode="json")
 
