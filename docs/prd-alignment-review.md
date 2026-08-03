@@ -162,7 +162,7 @@ Remaining open items:
 
 ## 6. Production Readiness
 
-Framing: per AGENTS.md/prd.md this is a **demo-shaped portfolio app** whose deploy target is a reviewer laptop. Rated against that intent, then separately flagged for real production.
+Framing: per AGENTS.md/prd.md this is a **demo-shaped application** whose deploy target is a local workstation. Rated against that intent, then separately flagged for real production.
 
 | Area | Rating (demo) | Rating (real prod) | Key evidence |
 |---|---|---|---|

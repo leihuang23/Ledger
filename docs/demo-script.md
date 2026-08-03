@@ -1,4 +1,4 @@
-# Five-Minute Portfolio Demo
+# Five-Minute Public Demo
 
 This script is the narration track for `docs/assets/ledger-walkthrough.webm`. It uses only synthetic seeded data and the local deterministic execution path, so a reviewer can reproduce the same evidence without API keys.
 
@@ -8,7 +8,7 @@ This script is the narration track for `docs/assets/ledger-walkthrough.webm`. It
 
 1. Copy the three example environment files. Export matching non-empty `DEMO_OPERATOR_TOKEN` and `EVAL_RUN_TOKEN` values, and set `OPERATOR_UI_ENABLED=true`, for this local/protected recording session.
 2. Start the stack with `docker compose up -d --build` and wait for the API, Postgres, Redis, and web health checks.
-3. Run `cd apps/web && npm run portfolio:assets`. The script performs the workflow in the browser and waits for fresh run/eval jobs; it does not reuse partial eval rows or pre-provision the result before recording.
+3. Run `cd apps/web && npm run demo:assets`. The script performs the workflow in the browser and waits for fresh run/eval jobs; it does not reuse partial eval rows or pre-provision the result before recording.
 
 ## 0:00-0:30 - Frame the problem
 
@@ -73,7 +73,7 @@ Show the regression banner and the case marked **Regression**.
 
 Return to `/runs` or the successful run detail.
 
-> “The portfolio claim is not that the model sounds smart. It is that the system gathers the right evidence, enforces a constrained tool and action boundary, records an auditable trace, and detects behavioral regressions before release.”
+> “The release claim is not that the model sounds smart. It is that the system gathers the right evidence, enforces a constrained tool and action boundary, records an auditable trace, and detects behavioral regressions before release.”
 
 > “The root cause itself comes from a deterministic evidence classifier over the seeded scenarios. When an LLM key is configured, the model rewrites the diagnosis in natural language, but a conclusion is adopted only when it agrees with the evidence signature - the classifier, not the model, is the source of truth.”
 

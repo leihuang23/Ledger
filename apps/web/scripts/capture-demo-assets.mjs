@@ -78,10 +78,10 @@ async function waitForBlockedRun(page) {
 async function addSceneLabel(page, title, detail) {
   await page.evaluate(
     ({ sceneTitle, sceneDetail }) => {
-      const previous = document.querySelector('[data-portfolio-scene]');
+      const previous = document.querySelector('[data-demo-scene]');
       previous?.remove();
       const label = document.createElement('aside');
-      label.dataset.portfolioScene = 'true';
+      label.dataset.demoScene = 'true';
       label.setAttribute(
         'style',
         [

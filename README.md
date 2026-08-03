@@ -2,7 +2,7 @@
 
 Ledger is a production-shaped SaaS revenue investigation agent and the control plane used to operate it. It acts like a forensic accountant for SaaS operations: every claim is backed by a cited source, every action leaves an audit trail, and every run is reconstructable. The name reflects both the financial record and the immutable evidence log at the heart of the product.
 
-The repository tells two connected portfolio stories:
+The repository tells two connected engineering stories:
 
 - **Project 1 - Ledger:** anomaly detection, evidence retrieval, cited reports, approval-gated mock actions, traces, and deterministic evals.
 - **Project 2 - Agent Control Plane:** immutable agent versions, a governed tool registry, launchable runs, cost/latency observability, a global approval queue, and A-vs-B regression evaluation.
@@ -58,7 +58,7 @@ Phase 6 introduces action and eval permissions as a new published `ledger_phase6
 
 ![Evaluation Studio regression comparison](docs/assets/eval-regression.png)
 
-The screenshots are generated from the seeded local stack with `npm run portfolio:assets`; no customer data is used.
+The screenshots are generated from the seeded local stack with `npm run demo:assets`; no customer data is used.
 
 ## Five-Minute Demo
 
@@ -101,7 +101,7 @@ Do not advance a readiness label by editing this file. Advance it by adding impl
 - `docker-compose.yml` - Local Postgres (pgvector), Redis, API, Celery worker, and web services with health checks.
 - `render.yaml` - Render Blueprint for the API, worker, Postgres, and Key Value services.
 - `apps/web/vercel.json` - Vercel project configuration for the Next.js frontend.
-- `docs` - deployment, security, demo, verification, and portfolio evidence.
+- `docs` - deployment, security, demo, verification, and release evidence.
 - `prd.md` - Product brief and success criteria.
 - `AGENTS.md` - Project guardrails for future agent work.
 
@@ -275,8 +275,8 @@ Provider selection is controlled by:
 - `OBSERVABILITY_FULL_PAYLOADS=false` keeps hosted traces to run/span metadata and small summaries by default. Set it to `true` only for synthetic/local demos where exporting raw evidence payloads is acceptable.
 - `OBSERVABILITY_TIMEOUT_SECONDS=2` sets short fail-open SDK timeouts for hosted trace providers.
 
-Langfuse is the recommended hosted or self-hosted provider for this portfolio
-project because it keeps the observability story aligned with an open-source
+Langfuse is the recommended hosted or self-hosted provider for this public demo
+because it keeps the observability story aligned with an open-source
 stack:
 
 - `LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=` are required for Langfuse.
@@ -375,7 +375,7 @@ See [docs/security.md](docs/security.md) for trust boundaries, residual risks, a
 
 ## Limitations
 
-- Token gates are suitable for a portfolio demo, not multi-user authentication, RBAC, or tenant isolation.
+- Token gates are suitable for a public read-only demo, not multi-user authentication, RBAC, or tenant isolation.
 - All business records are deterministic synthetic data; there are no real SaaS, CRM, email, or payment integrations.
 - External actions remain mocks. Approval demonstrates the state machine and audit boundary, not message delivery.
 - The Ledger investigation workflow is a fixed linear DAG; the control plane versions configuration, not graph topology.

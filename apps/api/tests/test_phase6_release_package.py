@@ -41,7 +41,7 @@ def test_vercel_config_declares_nextjs_project_contract() -> None:
     assert "Strict-Transport-Security" in next_config
 
 
-def test_phase6_hiring_package_contains_required_artifacts() -> None:
+def test_phase6_release_package_contains_required_artifacts() -> None:
     readme = ROOT.joinpath("README.md").read_text(encoding="utf-8")
     required_sections = (
         "## The Problem",

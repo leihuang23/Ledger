@@ -35,8 +35,8 @@ playwright/.cache/
 .trae/
 .qoder/
 
-# Local launch tracking (not for public repo)
-docs/portfolio-launch-checklist.md
+# Local release tracking (not for public repo)
+docs/private-release-checklist.md
 
 # Local product brief (not tracked)
 prd.md

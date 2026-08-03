@@ -1,6 +1,6 @@
 # Human-Assisted Follow-Ups
 
-These items need credentials, external services, or an operator-owned deployment target. They are not required for the local PRD MVP behavior, but they are useful before a public portfolio review.
+These items need credentials, external services, or an operator-owned deployment target. They are not required for the local PRD MVP behavior, but they are useful before a public demo release.
 
 ## Credential Setup Manual
 
@@ -159,7 +159,7 @@ do not replace an operator-owned visual browser pass.
   4. Cited evidence panel.
   5. Approval approve/reject actions.
   6. Eval report.
-- Capture screenshots for a portfolio README or demo notes if the project will be shared publicly.
+- Capture screenshots for the README or demo notes if the project will be shared publicly.
 
 ## Optional Stack Parity Decisions
 

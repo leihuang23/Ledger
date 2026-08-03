@@ -380,9 +380,9 @@ Repeat with any incident ID in the table.
 
 ## Embedding Recommendation
 
-The current embedding implementation is deterministic local hashing, not a canned mock. It tokenizes text, creates a normalized 96-dimensional hashed vector, stores it in pgvector, and combines vector scoring with lexical overlap in SQLite tests. This is good for a portfolio demo because it is free, deterministic, credential-free, and keeps the eval suite stable.
+The current embedding implementation is deterministic local hashing, not a canned mock. It tokenizes text, creates a normalized 96-dimensional hashed vector, stores it in pgvector, and combines vector scoring with lexical overlap in SQLite tests. This is good for a public demo because it is free, deterministic, credential-free, and keeps the eval suite stable.
 
-Do not replace it by default before a portfolio review. Instead, keep:
+Do not replace it by default before a public demo release. Instead, keep:
 
 ```bash
 EMBEDDING_PROVIDER=local
