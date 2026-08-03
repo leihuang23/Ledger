@@ -50,7 +50,7 @@ This is a portfolio demo with synthetic data. Its public surface is read-only; a
 
 ### Misinformation
 
-- Major report claims must reference retrieved SQL, ticket, document, product-event, or incident evidence.
+- Major report claims must reference retrieved evidence per the evidence-citation criterion in `prd.md`, which includes Stripe-derived billing records already normalized into Ledger when the sandbox adapter is present.
 - The eval suite scores root-cause match, citation coverage, and action safety rather than prose fluency.
 - An ambiguity scenario requires the agent to state uncertainty when evidence is incomplete.
 - Residual risk: deterministic root-cause signatures do not grade every semantically equivalent explanation.
