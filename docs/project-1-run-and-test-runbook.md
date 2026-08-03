@@ -2,7 +2,7 @@
 
 This runbook covers the Week 6-ready local review path for Project 1, Ledger. It is written for a reviewer who wants to prove the app boots, the seeded incident scenarios are present, the agent produces cited reports, approval gates work, and the eval suite passes.
 
-Verified locally on 2026-07-06 after reading `prd.md`, `AGENTS.md`, and the current implementation.
+Verified locally on 2026-07-06 after reading `AGENTS.md` and the current implementation.
 
 ## Current Readiness Snapshot
 

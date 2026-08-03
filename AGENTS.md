@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is for Ledger, a production-shaped SaaS revenue and support operations agent. `prd.md` is the product brief and success criteria; the implementation source of truth is the code, Alembic migrations, API OpenAPI docs, and tests. Treat `prd.md` as the contract, not a detailed implementation plan.
+This repository is for Ledger, a production-shaped SaaS revenue and support operations agent. This file is the product contract and success criteria; the implementation source of truth is the code, Alembic migrations, API OpenAPI docs, and tests. Treat this file as the contract, not a detailed implementation plan.
 
 ## Critical Product Read
 
@@ -22,11 +22,11 @@ The third risk is unrealistic seed data. If scenarios are too obvious or linear,
 - Demo mutations are token-gated when `APP_ENV=demo`: `POST /incidents`, `POST /agent/investigations`, `POST /approvals/{id}/approve|reject`, `POST /mock-actions`, `POST /runs`, `POST /runs/{id}/transitions`, `POST /agents` and its version mutation routes (`POST /agents/{id}/versions`, `PATCH .../versions/{vid}`, `POST .../versions/{vid}/publish`), `POST /tools`, and `POST /eval-datasets` (including dataset runs) require `DEMO_OPERATOR_TOKEN`; `POST /evals/run` requires `EVAL_RUN_TOKEN`; `POST /documents/ingest` requires `DOCUMENT_INGEST_TOKEN`. Each gate uses `secrets.compare_digest` and fails closed when its token is unset in the `demo` env. Only the `DEMO_OPERATOR_TOKEN` gate opens in local/test/development; the `EVAL_RUN_TOKEN` and `DOCUMENT_INGEST_TOKEN` gates fail closed in every environment when their token is unset. Never disable the gates for a publicly accessible demo.
 - Treat seeded scenarios and eval cases as product-critical assets, not test fixtures of convenience.
 - Prefer deterministic analytics and explicit tool results before LLM summarization. The LLM should synthesize evidence, not invent the evidence.
-- Do not introduce real customer data. Do not introduce third-party integrations beyond what `prd.md` explicitly permits.
+- Do not introduce real customer data. Do not introduce third-party integrations beyond the Stripe test-mode evidence adapter defined in the Stripe sandbox boundary below.
 
 ## Stripe sandbox boundary (optional evidence adapter)
 
-Stripe is **in scope only** as a narrow test-mode evidence adapter defined in `prd.md` (Stripe evidence boundary). It is not a general merchant platform.
+Stripe is **in scope only** as a narrow test-mode evidence adapter (Stripe evidence boundary) as defined in this section. It is not a general merchant platform.
 
 Allowed (when implemented in a later slice):
 
@@ -37,7 +37,7 @@ Allowed (when implemented in a later slice):
 - Stripe Test Clock failed-renewal scenario feeding investigations with citations.
 - Stripe credentials and any Stripe-related mutations only outside the anonymous public deployment.
 
-Forbidden unless the PRD is updated again:
+Forbidden unless this file is updated again:
 
 - Checkout, refunds, payment collection, Connect, OAuth.
 - Any Stripe write actions beyond ingestion/reconciliation into Ledger records.
@@ -54,7 +54,7 @@ Preserve existing evidence, eval, approval, audit, and demo-token gates whether 
 
 ## MVP Definition
 
-Build the smallest credible system that can pass the PRD success criteria:
+Build the smallest credible system that can pass the success criteria in this file:
 
 - At least 5 seeded incident scenarios (the current seed includes 6 scenarios, including one ambiguity case).
 - At least 4 of 5 eval scenarios correctly identify the intended root cause.
@@ -72,9 +72,9 @@ If implementation effort grows, cut optional infrastructure before cutting evide
 - Keep tool boundaries explicit. SQL/query tools return data; document tools return cited excerpts; action tools create pending mock actions or approval requests.
 - Store agent run steps with enough detail to replay or audit the investigation without reading logs.
 - Keep provider abstraction minimal until there is real pressure to support multiple LLM providers.
-- Do not add dependencies only because they are listed in the PRD. Add each dependency when a real implementation need appears.
+- Do not add dependencies only because they are listed in a product brief or plan. Add each dependency when a real implementation need appears.
 - The current backend is organized by domain under `apps/api/app/`: `accounts`, `agent`, `agents`, `approvals`, `core`, `dashboard`, `db`, `evals`, `health`, `incidents`, `knowledge`, `llm`, `metrics`, `runs`, `support`, and `tools`. The Next.js frontend under `apps/web/app/` mirrors the operational surfaces: dashboard, incidents, agent runs, approvals, accounts, support tickets, knowledge search, evals, and the control-plane pages (agents, tools, runs, dashboard).
-- The PRD lists LangGraph as the recommended orchestrator. The MVP uses a fixed linear investigation DAG built with LangGraph's `StateGraph` in `apps/api/app/agent/workflow.py` (compiled per run invocation, no dynamic branching). Do not add dynamic branching or loops to the graph unless a real feature requires it; keep the orchestration simple and auditable.
+- LangGraph is the recommended orchestrator. The MVP uses a fixed linear investigation DAG built with LangGraph's `StateGraph` in `apps/api/app/agent/workflow.py` (compiled per run invocation, no dynamic branching). Do not add dynamic branching or loops to the graph unless a real feature requires it; keep the orchestration simple and auditable.
 
 ## Data And Scenario Rules
 
@@ -132,11 +132,11 @@ When the user asks to create a learning file for current changes:
 
 ## Working Style For Future Agents
 
-- Read `prd.md` before making product or architecture changes.
+- Read this file before making product or architecture changes.
 - Challenge requests that weaken evidence, evals, approval gating, or auditability.
 - Keep diffs small and behavior-oriented.
 - Prefer deleting unnecessary complexity over adding new layers.
-- If the implementation direction conflicts with these instructions, update the PRD and this file together so future agents do not inherit drift.
+- If the implementation direction conflicts with these instructions, update this file so future agents do not inherit drift.
 
 ## Maintaining this file
 
