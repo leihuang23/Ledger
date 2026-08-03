@@ -64,13 +64,14 @@ def reconcile_stripe_sandbox(
         result.customers_seen = len(customers)
         for customer in customers:
             try:
-                before = _snapshot_account(session, customer.get("id"))
-                upsert_customer(session, customer, event_created_at=started)
-                session.flush()
-                after = _snapshot_account(session, customer.get("id"))
-                if before != after:
-                    result.repaired += 1
-                    result.details.append(f"repaired customer {customer.get('id')}")
+                with session.begin_nested():
+                    before = _snapshot_account(session, customer.get("id"))
+                    upsert_customer(session, customer, event_created_at=started)
+                    session.flush()
+                    after = _snapshot_account(session, customer.get("id"))
+                    if before != after:
+                        result.repaired += 1
+                        result.details.append(f"repaired customer {customer.get('id')}")
             except Exception as exc:  # noqa: BLE001
                 result.errors += 1
                 result.details.append(f"customer error: {exc}")
@@ -79,17 +80,18 @@ def reconcile_stripe_sandbox(
         result.subscriptions_seen = len(subscriptions)
         for subscription in subscriptions:
             try:
-                before = _snapshot_subscription(session, subscription.get("id"))
-                upsert_subscription(
-                    session, subscription, event_created_at=started
-                )
-                session.flush()
-                after = _snapshot_subscription(session, subscription.get("id"))
-                if before != after:
-                    result.repaired += 1
-                    result.details.append(
-                        f"repaired subscription {subscription.get('id')}"
+                with session.begin_nested():
+                    before = _snapshot_subscription(session, subscription.get("id"))
+                    upsert_subscription(
+                        session, subscription, event_created_at=started
                     )
+                    session.flush()
+                    after = _snapshot_subscription(session, subscription.get("id"))
+                    if before != after:
+                        result.repaired += 1
+                        result.details.append(
+                            f"repaired subscription {subscription.get('id')}"
+                        )
             except Exception as exc:  # noqa: BLE001
                 result.errors += 1
                 result.details.append(f"subscription error: {exc}")
@@ -98,13 +100,14 @@ def reconcile_stripe_sandbox(
         result.invoices_seen = len(invoices)
         for invoice in invoices:
             try:
-                before = _snapshot_invoice(session, invoice.get("id"))
-                upsert_invoice(session, invoice, event_created_at=started)
-                session.flush()
-                after = _snapshot_invoice(session, invoice.get("id"))
-                if before != after:
-                    result.repaired += 1
-                    result.details.append(f"repaired invoice {invoice.get('id')}")
+                with session.begin_nested():
+                    before = _snapshot_invoice(session, invoice.get("id"))
+                    upsert_invoice(session, invoice, event_created_at=started)
+                    session.flush()
+                    after = _snapshot_invoice(session, invoice.get("id"))
+                    if before != after:
+                        result.repaired += 1
+                        result.details.append(f"repaired invoice {invoice.get('id')}")
             except Exception as exc:  # noqa: BLE001
                 result.errors += 1
                 result.details.append(f"invoice error: {exc}")

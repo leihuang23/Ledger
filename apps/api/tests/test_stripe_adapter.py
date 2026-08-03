@@ -399,6 +399,100 @@ def test_out_of_order_refetch_uses_current_stripe_object(
         assert subscription.status == "canceled"
 
 
+def test_out_of_order_invoice_before_customer_applies(
+    session_factory: Callable[[], Session],
+) -> None:
+    """Invoice arriving before its customer/subscription creates shells."""
+    base = int(time.time()) - 3_600
+    event = _event(
+        event_id="evt_invoice_first",
+        event_type="invoice.paid",
+        obj=_invoice(
+            "in_first",
+            customer_id="cus_first",
+            subscription_id="sub_first",
+            status="paid",
+            failure_reason=None,
+        ),
+        created=base,
+    )
+    with session_factory() as session:
+        result = process_stripe_event(session, event)
+        assert result.status == "processed"
+
+        account = session.scalar(
+            select(Account).where(Account.stripe_customer_id == "cus_first")
+        )
+        sub = session.scalar(
+            select(Subscription).where(
+                Subscription.stripe_subscription_id == "sub_first"
+            )
+        )
+        inv = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_first")
+        )
+        assert account is not None
+        assert sub is not None
+        assert inv is not None
+        assert inv.status == "paid"
+
+        # Shells carry no authoritative freshness, so a real customer event
+        # can still populate the placeholder even when created earlier.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_customer_later",
+                event_type="customer.created",
+                obj=_customer("cus_first", name="First Real Co"),
+                created=base + 100,
+            ),
+        )
+        refreshed = session.scalar(
+            select(Account).where(Account.stripe_customer_id == "cus_first")
+        )
+        assert refreshed is not None
+        assert refreshed.name == "First Real Co"
+        assert refreshed.segment == "midmarket"
+
+
+def test_shell_from_subscription_event_superseded_by_real_customer(
+    session_factory: Callable[[], Session],
+) -> None:
+    """A subscription event's account shell does not block an older customer.create."""
+    base = int(time.time()) - 3_600
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_shell_sub",
+                event_type="customer.subscription.updated",
+                obj=_subscription("sub_shell", customer_id="cus_shell"),
+                created=base + 500,
+            ),
+        )
+        account = session.scalar(
+            select(Account).where(Account.stripe_customer_id == "cus_shell")
+        )
+        assert account is not None
+        assert account.name == "Stripe customer cus_shell"
+
+        # Older real customer.created must replace the placeholder.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_real_cust",
+                event_type="customer.created",
+                obj=_customer("cus_shell", name="Real Shell Co"),
+                created=base,
+            ),
+        )
+        refreshed = session.scalar(
+            select(Account).where(Account.stripe_customer_id == "cus_shell")
+        )
+        assert refreshed is not None
+        assert refreshed.name == "Real Shell Co"
+
+
 def test_invoice_paid_and_payment_failed_mapping(
     session_factory: Callable[[], Session],
 ) -> None:
@@ -458,6 +552,68 @@ def test_invoice_paid_and_payment_failed_mapping(
         assert failed.status == "failed"
         assert failed.failure_reason == "card_expired"
         assert failed.id == ledger_invoice_id("in_fail_1")
+
+
+def test_invoice_updated_preserves_failed_evidence(
+    session_factory: Callable[[], Session],
+) -> None:
+    """A non-payment update on an already-failed invoice keeps the failed state."""
+    base = int(time.time()) - 3_600
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_fp_cust",
+                event_type="customer.created",
+                obj=_customer("cus_fp"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_fp_sub",
+                event_type="customer.subscription.created",
+                obj=_subscription("sub_fp", customer_id="cus_fp"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_fp_fail",
+                event_type="invoice.payment_failed",
+                obj=_invoice(
+                    "in_fp",
+                    customer_id="cus_fp",
+                    subscription_id="sub_fp",
+                    status="open",
+                    failure_reason="card_declined",
+                ),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_fp_upd",
+                event_type="invoice.updated",
+                obj=_invoice(
+                    "in_fp",
+                    customer_id="cus_fp",
+                    subscription_id="sub_fp",
+                    status="open",
+                    failure_reason="card_declined",
+                ),
+                created=base + 100,
+            ),
+        )
+        inv = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_fp")
+        )
+        assert inv is not None
+        assert inv.status == "failed"
+        assert inv.failure_reason == "card_declined"
 
 
 def test_unsupported_and_livemode_events_are_visible(
@@ -531,10 +687,43 @@ def test_reconciliation_repairs_missed_webhook(
         )
         assert account is not None
         assert sub is not None and sub.status == "active"
-        assert inv is not None and inv.status == "open"
+        assert inv is not None
+        assert inv.status == "failed"
+        assert inv.failure_reason == "insufficient_funds"
         run = session.get(StripeReconciliationRun, result.run_id)
         assert run is not None
         assert run.repaired == result.repaired
+
+
+def test_reconcile_survives_per_object_errors(
+    session_factory: Callable[[], Session],
+) -> None:
+    """One bad object cannot abort the run; errors are surfaced, run persists."""
+    customer = _customer("cus_ok")
+    invoice_bad = _invoice(
+        "in_bad",
+        customer_id="cus_bad",
+        subscription_id="sub_bad",
+        status="open",
+    )
+    invoice_bad["amount_due"] = "not-a-number"
+    memory = InMemoryStripeClient(
+        customers={customer["id"]: customer},
+        subscriptions={},
+        invoices={invoice_bad["id"]: invoice_bad},
+    )
+
+    with session_factory() as session:
+        result = reconcile_stripe_sandbox(session, memory, limit=50)
+        assert result.status == "completed_with_errors"
+        assert result.errors >= 1
+        assert session.scalar(
+            select(Account).where(Account.stripe_customer_id == "cus_ok")
+        ) is not None
+        run = session.get(StripeReconciliationRun, result.run_id)
+        assert run is not None
+        assert run.status == "completed_with_errors"
+        assert run.errors == result.errors
 
 
 def test_failed_renewal_simulation_maps_test_clock_style_state(

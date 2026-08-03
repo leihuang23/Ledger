@@ -88,7 +88,12 @@ def map_subscription_status(stripe_status: str | None) -> str:
     return SUBSCRIPTION_STATUS_MAP.get(stripe_status, stripe_status)
 
 
-def map_invoice_status(stripe_status: str | None, *, event_type: str | None = None) -> str:
+def map_invoice_status(
+    stripe_status: str | None,
+    *,
+    event_type: str | None = None,
+    attempted: bool | None = None,
+) -> str:
     if event_type == "invoice.payment_failed":
         return "failed"
     if event_type == "invoice.paid":
@@ -99,7 +104,10 @@ def map_invoice_status(stripe_status: str | None, *, event_type: str | None = No
         return "failed"
     if not stripe_status:
         return "open"
-    return INVOICE_STATUS_MAP.get(stripe_status, stripe_status)
+    mapped = INVOICE_STATUS_MAP.get(stripe_status, stripe_status)
+    if event_type is None and mapped == "open" and attempted:
+        return "failed"
+    return mapped
 
 
 def extract_failure_reason(invoice_obj: dict[str, Any]) -> str | None:
@@ -205,6 +213,7 @@ def upsert_customer(
     customer_obj: dict[str, Any],
     *,
     event_created_at: datetime,
+    placeholder: bool = False,
 ) -> Account | None:
     stripe_id = customer_obj.get("id")
     if not stripe_id:
@@ -216,8 +225,11 @@ def upsert_customer(
     if account is None:
         account = session.get(Account, ledger_account_id(stripe_id))
 
-    if account is not None and is_stale(account.stripe_object_updated_at, event_created_at):
-        return account
+    if account is not None:
+        if placeholder:
+            return account
+        if is_stale(account.stripe_object_updated_at, event_created_at):
+            return account
 
     metadata = customer_obj.get("metadata") or {}
     segment = str(metadata.get("segment") or "smb")[:32]
@@ -240,12 +252,13 @@ def upsert_customer(
             health_score=health_score,
             source_scenario=STRIPE_SOURCE_SCENARIO,
             stripe_customer_id=stripe_id,
-            stripe_object_updated_at=event_created_at,
+            stripe_object_updated_at=None if placeholder else event_created_at,
             created_at=unix_to_datetime(customer_obj.get("created"))
             or event_created_at,
             is_active=not bool(customer_obj.get("deleted")),
         )
         session.add(account)
+        session.flush()
     else:
         account.name = customer_display_name(customer_obj)
         account.segment = segment
@@ -265,6 +278,7 @@ def upsert_subscription(
     *,
     event_created_at: datetime,
     event_type: str | None = None,
+    placeholder: bool = False,
 ) -> Subscription | None:
     stripe_id = subscription_obj.get("id")
     if not stripe_id:
@@ -295,6 +309,7 @@ def upsert_subscription(
                 "metadata": {},
             },
             event_created_at=event_created_at,
+            placeholder=True,
         )
     if account is None:
         return None
@@ -305,10 +320,13 @@ def upsert_subscription(
     if subscription is None:
         subscription = session.get(Subscription, ledger_subscription_id(stripe_id))
 
-    if subscription is not None and is_stale(
-        subscription.stripe_object_updated_at, event_created_at
-    ):
-        return subscription
+    if subscription is not None:
+        if placeholder:
+            return subscription
+        if is_stale(
+            subscription.stripe_object_updated_at, event_created_at
+        ):
+            return subscription
 
     status = map_subscription_status(subscription_obj.get("status"))
     if event_type == "customer.subscription.deleted":
@@ -342,7 +360,7 @@ def upsert_subscription(
             cancellation_reason=cancellation_reason,
             source_scenario=STRIPE_SOURCE_SCENARIO,
             stripe_subscription_id=stripe_id,
-            stripe_object_updated_at=event_created_at,
+            stripe_object_updated_at=None if placeholder else event_created_at,
         )
         session.add(subscription)
     else:
@@ -405,6 +423,7 @@ def upsert_invoice(
                 "metadata": {},
             },
             event_created_at=event_created_at,
+            placeholder=True,
         )
     if account is None:
         return None
@@ -429,6 +448,7 @@ def upsert_invoice(
                     "metadata": {},
                 },
                 event_created_at=event_created_at,
+                placeholder=True,
             )
     if subscription is None:
         # Invoices without a subscription still need a local parent row.
@@ -459,7 +479,11 @@ def upsert_invoice(
     if invoice is not None and is_stale(invoice.stripe_object_updated_at, event_created_at):
         return invoice
 
-    status = map_invoice_status(invoice_obj.get("status"), event_type=event_type)
+    status = map_invoice_status(
+        invoice_obj.get("status"),
+        event_type=event_type,
+        attempted=bool(invoice_obj.get("attempted")),
+    )
     amount = int(
         invoice_obj.get("amount_paid")
         or invoice_obj.get("amount_due")
@@ -480,6 +504,9 @@ def upsert_invoice(
     failure_reason = extract_failure_reason(invoice_obj) if status == "failed" else None
     if status == "failed" and not failure_reason:
         failure_reason = "payment_failed"
+    if invoice is not None and invoice.status == "failed" and status == "open":
+        status = "failed"
+        failure_reason = invoice.failure_reason or failure_reason
 
     if invoice is None:
         invoice = Invoice(
