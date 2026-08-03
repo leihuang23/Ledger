@@ -127,7 +127,7 @@ Stripe is **in scope only** as a narrow **optional test-mode evidence adapter** 
 | Bounded reconciliation for missed events | Stripe writes beyond ingestion/reconciliation into Ledger |
 | Test Clock failed-renewal evidence feeding investigations with citations | Exposing Stripe secrets via public client config or the anonymous demo |
 
-Whether or not Stripe is configured, evidence citation rules, evals, approval gates, and demo token gates stay in force. The public demo remains read-only. Prefer [AGENTS.md](AGENTS.md) and `prd.md` for the full boundary.
+Whether or not Stripe is configured, evidence citation rules, evals, approval gates, and demo token gates stay in force. The public demo remains read-only. Prefer [AGENTS.md](AGENTS.md) for the full boundary.
 
 ---
 
@@ -201,8 +201,7 @@ Use fresh command summaries as the source of truth for pass counts; do not treat
 | `apps/web` | Next.js App Router operations UI |
 | `docker-compose.yml` | Local full stack |
 | `render.yaml` / `apps/web/vercel.json` | Deploy blueprints |
-| `prd.md` | Product contract and success criteria |
-| `AGENTS.md` | Guardrails for contributors and agents |
+| `AGENTS.md` | Product contract, success criteria, and guardrails |
 | `docs/` | Security, deployment, demo script, sign-off evidence |
 
 ---
