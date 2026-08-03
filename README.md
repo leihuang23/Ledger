@@ -10,9 +10,9 @@
 | **Case study** | [leihuang.me/work/ledger](https://leihuang.me/work/ledger/) |
 | **Walkthrough** | [docs/assets/ledger-walkthrough.webm](docs/assets/ledger-walkthrough.webm) (~3 min) · [narrated script](docs/demo-script.md) |
 
-> **Honest positioning.** Portfolio system with **synthetic business data**. Public demo is **read-only**. Root cause comes from a **deterministic classifier**; the optional LLM synthesizes wording and is adopted only when it agrees. Slack/email/CRM/task actions are **mocks behind approval**. Stripe is an **optional test-mode evidence adapter** (ingestion only; not live commerce). No merchant adoption or live-customer claims.
+> **Scope and disclosures.** Ledger uses **synthetic business data**. The public deployment is **read-only**. Root cause comes from a **deterministic classifier**; the optional LLM synthesizes wording and is adopted only when it agrees. Slack/email/CRM/task actions are **mocks behind approval**. Stripe is an **optional test-mode evidence adapter** (ingestion only; not live commerce). No merchant adoption or live-customer claims.
 
-Two connected portfolio surfaces in one repo:
+Two connected product surfaces in one repo:
 
 1. **Investigation agent** - anomaly → multi-source evidence → cited report → approval-gated drafts → run trace.
 2. **Agent control plane** - immutable agent versions, tool registry, launchable runs, cost/latency dashboard, global approval queue, A-vs-B evals.
