@@ -19,11 +19,24 @@ Two connected portfolio surfaces in one repo:
 
 ---
 
-## Problem and primary scenario
+## The Problem
 
 A fluent incident summary is easy to demo and hard to trust. Operators need to know which evidence was retrieved, which agent version and tools ran, what failed, how much it cost, whether a change regressed quality, and whether a proposed action crossed an approval boundary.
 
 **Primary demo prompt: "MRR dropped this week."** The seeded dataset embeds six incident scenarios (including one ambiguity case) with confounders: failed renewals, enterprise churn, usage outages, support backlog bugs, payment-method expiry, and an intentional unknown-root-cause path. Answers require joining metrics, invoices, tickets, product events, and knowledge docs - not a single obvious row.
+
+---
+
+## Five-Minute Demo
+
+Open the [live demo](https://ledger.leihuang.me) (anonymous, read-only) or the local stack, then run the primary scenario end to end:
+
+1. **Investigate** - open an incident seeded for "MRR dropped this week" and start or continue the investigation.
+2. **Read the report** - confirm every major claim in the final report cites retrieved SQL, tickets, or docs.
+3. **Check approvals** - verify the high-risk customer follow-up stays pending until approved or rejected.
+4. **Compare evals** - open Eval Studio and flip the degraded candidate to see one case regress from pass to fail.
+
+A recorded walkthrough is at [docs/assets/ledger-walkthrough.webm](docs/assets/ledger-walkthrough.webm) (~3 min); the full narration and expected evidence are in [docs/demo-script.md](docs/demo-script.md).
 
 ---
 
@@ -73,7 +86,7 @@ Primary workspace routes: `/incidents`, `/agent/runs/{id}`, `/approvals`, `/eval
 
 ---
 
-## Approval and mutation safety
+## Security Model: approval and mutation safety
 
 | Boundary | Behavior |
 | --- | --- |
@@ -89,7 +102,7 @@ Tokens are server-only (never `NEXT_PUBLIC_*`). See [docs/security.md](docs/secu
 
 ---
 
-## Evals: method, verified results, visible regression
+## Eval Methodology: verified results, visible regression
 
 **Method.** Six seeded cases (checkout retry regression, enterprise churn, usage drop after import outage, support backlog export bug, payment method expiration, unknown root cause). Each case stores expected root cause, evidence types/markers, false leads, and recommended actions. Scoring:
 
@@ -217,7 +230,7 @@ Use fresh command summaries as the source of truth for pass counts; do not treat
 - **Token gates ≠ multi-tenant auth** - not production identity, RBAC, or tenant isolation.
 - **Classifier space** - anomalies outside seeded signatures take the explicit uncertainty path.
 
-### Intentionally deferred
+## Future Work
 
 Real operator auth and secret rotation; semantic eval rubrics and adversarial red-team suites; production alerting/scheduling; replacing mocks only after per-integration authorization and idempotency contracts.
 
