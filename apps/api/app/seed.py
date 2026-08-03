@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from urllib.parse import urlparse
 
 from sqlalchemy import delete, func, select, update
@@ -1471,7 +1471,6 @@ def _demo_audit_actions(
     - "single_pending" -> a single pending approval
     """
     base = run.id
-    now = datetime.now(UTC).replace(tzinfo=None)
     updated = created_at + timedelta(minutes=4)
 
     def action(

@@ -14,7 +14,6 @@ from app.models import (
     AgentRunStep,
     ApprovalRequest,
     EvalResult,
-    MockAction,
 )
 from app.seed import reseed_database
 
