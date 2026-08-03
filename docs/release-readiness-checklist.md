@@ -97,7 +97,7 @@ Checkboxes mark **already true** from current product code, seed design, and thi
 - [ ] The Ledger case study supports both a 60-second scan and a technical deep dive.
 - [ ] The README links to the demo, case study, and walkthrough.
 - [x] A walkthrough recording and its narration script are tracked. (`docs/assets/ledger-walkthrough.webm`, ~195.8s; narration track in `docs/demo-script.md`.)
-- [ ] Synthetic data, sandbox integration, and known limitations are disclosed. (PRD/AGENTS disclosure landed Day 1; public README/case-study wording still to align at publish.)
+- [x] Synthetic data, sandbox integration, and known limitations are disclosed. (PRD/AGENTS and README carry the honest disclosure; case-study wording remains an open publish item below.)
 - [x] No personal or sensitive contact information is exposed in this repository package. (No phone/street address published here as product assets.)
 - [ ] All public claims match currently verified behavior.
 
