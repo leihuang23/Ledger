@@ -1,6 +1,6 @@
 # Human-Assisted Follow-Ups
 
-These items need credentials, external services, or an operator-owned deployment target. They are not required for the local MVP behavior, but they are useful before a public demo release.
+These items need credentials, external services, or an operator-owned deployment target. They are not required for the local PRD MVP behavior, but they are useful before a public engineering review.
 
 ## Credential Setup Manual
 

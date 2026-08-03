@@ -37,7 +37,7 @@ def reconcile_stripe_sandbox(
     """Compare recent Stripe sandbox objects with local state and repair misses.
 
     ``limit`` bounds each object list so reconciliation stays cheap and safe
-    for portfolio/demo environments.
+    for demo environments.
     """
     started = now or datetime.now(timezone.utc).replace(tzinfo=None)
     run_id = reconciliation_run_id(f"{started.isoformat()}:{uuid4().hex}")

@@ -1,6 +1,6 @@
-# Ledger launch checklist
+# Ledger release readiness checklist
 
-**Purpose:** Launch acceptance criteria checklist plus a recorded green baseline. Checkboxes mark items that are true in the current product code and tests.
+**Purpose:** Release acceptance criteria checklist plus a recorded green baseline. Checkboxes mark items that are true in the current product code and tests.
 
 **Branch / contract alignment:** Stripe **test-mode** evidence adapter is in product code (`app/stripe_adapter/`, `POST /stripe/webhook`, `POST /stripe/reconcile`). `prd.md` and `AGENTS.md` define the boundary: test-mode only, normalize into existing account/subscription/invoice records, no Checkout/refunds/Connect/OAuth/live keys, disabled for `APP_ENV=demo`.
 
@@ -33,7 +33,7 @@ cd apps/api
 python -m venv .venv && source .venv/bin/activate   # if needed
 pip install -e ".[dev]"
 python -m pytest -q \
-  tests/test_phase6_portfolio_package.py \
+  tests/test_phase6_*package.py \
   tests/test_agent_investigations.py \
   tests/test_approvals_and_actions.py \
   tests/test_evals.py \
@@ -68,9 +68,9 @@ Prior Phase 6 local sign-off (historical, not re-run here) remains documented in
 
 ---
 
-## Launch acceptance criteria (from plan Section 8)
+## Release acceptance criteria
 
-Checkboxes mark **already true** from current product code, seed design, and this Day 1 baseline. Unchecked items remain for later launch days.
+Checkboxes mark **already true** from current product code, seed design, and this Day 1 baseline. Unchecked items remain for later release preparation.
 
 ### Ledger product
 
@@ -121,7 +121,7 @@ Existing media suitable for public presentation (no new captures in Day 1):
 | `docs/assets/eval-regression.png` | PNG 1440x900 | Eval Studio A-vs-B regression screenshot used in README. |
 | `docs/assets/ledger-walkthrough.webm` | WebM ~12 MB | Narrated walkthrough; README links it. Phase 6 sign-off: ~195.8s duration. |
 
-Regenerate via `cd apps/web && npm run portfolio:assets` when UI changes (see `docs/demo-script.md`).
+Regenerate the screenshots with the existing capture workflow when UI changes (see `docs/demo-script.md`).
 
 ---
 
