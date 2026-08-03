@@ -25,23 +25,49 @@ test.describe('public read-only demo', () => {
     page,
     request,
   }) => {
-    const before = await request.get(`${apiBaseUrl}/incidents?limit=100`);
-    expect(before.ok()).toBeTruthy();
-    const beforeBody = (await before.json()) as { incidents?: unknown[] };
-    const beforeCount = beforeBody.incidents?.length ?? 0;
+    const readIncidentCount = async () => {
+      const response = await request.get(`${apiBaseUrl}/incidents?limit=100`);
+      expect(response.ok()).toBeTruthy();
+      const body = (await response.json()) as { incidents?: unknown[] };
+      return body.incidents?.length ?? 0;
+    };
+    const readRunCount = async () => {
+      const response = await request.get(`${apiBaseUrl}/runs?limit=100`);
+      expect(response.ok()).toBeTruthy();
+      const body = (await response.json()) as unknown[];
+      return Array.isArray(body) ? body.length : 0;
+    };
+    const beforeIncidentCount = await readIncidentCount();
+    const beforeRunCount = await readRunCount();
 
-    // Hit the home dashboard, then attempt the incident-from-anomaly action URL
-    // shape by posting a form that mirrors the dashboard control. The server
-    // action must redirect to the controlled read-only destination.
-    await page.goto('/');
-    await expect(page.getByText(/public read-only demo/i).first()).toBeVisible();
+    // Open the first seeded incident. The investigation form is rendered but its
+    // submit control is disabled in the read-only demo.
+    await page.goto('/incidents');
+    const incidentLink = page.locator('a[href^="/incidents/"]').first();
+    await expect(incidentLink).toBeVisible();
+    await incidentLink.click();
+    await page.waitForURL(/\/incidents\//);
+    const runButton = page.getByRole('button', { name: 'Run investigation' });
+    await expect(runButton).toBeDisabled();
 
-    await page.goto('/?read_only=1');
-    await expect(page.getByText(/public read-only demo|read-only/i).first()).toBeVisible();
+    // Forge the operator mutation: re-enable the disabled server-action submit
+    // button and post the form exactly as an operator would.
+    await page.locator('form.investigation-form').evaluate((form) => {
+      const button = form.querySelector('button[type="submit"]');
+      if (button instanceof HTMLButtonElement) {
+        button.disabled = false;
+      }
+    });
+    await expect(runButton).toBeEnabled();
+    await runButton.click();
 
-    const after = await request.get(`${apiBaseUrl}/incidents?limit=100`);
-    expect(after.ok()).toBeTruthy();
-    const afterBody = (await after.json()) as { incidents?: unknown[] };
-    expect(afterBody.incidents?.length ?? 0).toBe(beforeCount);
+    // The server action must fail closed: redirect to the controlled read-only
+    // destination instead of launching an investigation.
+    await page.waitForURL(/\?read_only=1/, { timeout: 15000 });
+    await expect(page.getByText(/No operator action was performed/i)).toBeVisible();
+
+    // No API state may change as a result of the forged mutation.
+    expect(await readIncidentCount()).toBe(beforeIncidentCount);
+    expect(await readRunCount()).toBe(beforeRunCount);
   });
 });
