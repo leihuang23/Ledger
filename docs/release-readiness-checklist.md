@@ -26,6 +26,12 @@ Captured from the isolated worktree on **2026-08-03** (UTC `2026-08-03T03:29:16Z
 | Deterministic eval CLI `python -m app.evals.runner --json` | `apps/api` | **not runnable here** - needs Postgres with role/db `ledger` |
 | Ruff | `apps/api` | **not installed** in the local `.venv` created for this baseline (`ruff` binary absent; no documented root `ruff` script in this tree) |
 
+> **Ruff note (current state, distinct from the Day 1 snapshot above):** ruff is
+> configured in `apps/api/pyproject.toml` (`[tool.ruff]`, `select = ["E4", "E7", "E9", "F"]`)
+> and CI runs `python -m pip install ruff && ruff check .` from `apps/api`
+> (`.github/workflows/ci.yml`), which passes on the current tree (verified 2026-08-03).
+> Keep the "not installed" row above as the recorded local baseline snapshot.
+
 ### Investigation + core suite command
 
 ```bash

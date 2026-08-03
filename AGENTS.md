@@ -75,7 +75,7 @@ If implementation effort grows, cut optional infrastructure before cutting evide
 - Store agent run steps with enough detail to replay or audit the investigation without reading logs.
 - Keep provider abstraction minimal until there is real pressure to support multiple LLM providers.
 - Do not add dependencies only because they are listed in a product brief or plan. Add each dependency when a real implementation need appears.
-- The current backend is organized by domain under `apps/api/app/`: `accounts`, `agent`, `agents`, `approvals`, `core`, `dashboard`, `db`, `evals`, `health`, `incidents`, `knowledge`, `llm`, `metrics`, `runs`, `support`, and `tools`. The Next.js frontend under `apps/web/app/` mirrors the operational surfaces: dashboard, incidents, agent runs, approvals, accounts, support tickets, knowledge search, evals, and the control-plane pages (agents, tools, runs, dashboard).
+- The current backend is organized by domain under `apps/api/app/`: `accounts`, `agent`, `agents`, `approvals`, `core`, `dashboard`, `db`, `evals`, `health`, `incidents`, `knowledge`, `llm`, `metrics`, `runs`, `stripe_adapter`, `support`, and `tools`. The Next.js frontend under `apps/web/app/` mirrors the operational surfaces: dashboard, incidents, agent runs, approvals, accounts, support tickets, knowledge search, evals, and the control-plane pages (agents, tools, runs, dashboard).
 - LangGraph is the recommended orchestrator. The MVP uses a fixed linear investigation DAG built with LangGraph's `StateGraph` in `apps/api/app/agent/workflow.py` (compiled per run invocation, no dynamic branching). Do not add dynamic branching or loops to the graph unless a real feature requires it; keep the orchestration simple and auditable.
 
 ## Data And Scenario Rules
