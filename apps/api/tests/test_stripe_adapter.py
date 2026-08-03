@@ -728,6 +728,247 @@ def test_test_clock_same_timestamp_invoice_sequence_applies(
         assert rev.failure_reason == "card_expired"
 
 
+def test_equal_timestamp_cannot_regress_canceled_subscription(
+    session_factory: Callable[[], Session],
+) -> None:
+    """An older-state same-timestamp snapshot cannot un-cancel a subscription."""
+    base = int(time.time()) - 3_600
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_canc_cust",
+                event_type="customer.created",
+                obj=_customer("cus_canc_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_canc_create",
+                event_type="customer.subscription.created",
+                obj=_subscription("sub_canc_1", customer_id="cus_canc_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_canc_delete",
+                event_type="customer.subscription.deleted",
+                obj=_subscription(
+                    "sub_canc_1",
+                    customer_id="cus_canc_1",
+                    status="canceled",
+                    canceled_at=base,
+                ),
+                created=base,
+            ),
+        )
+        # Active snapshot from before the cancel delivered at the same frozen time.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_canc_stale_update",
+                event_type="customer.subscription.updated",
+                obj=_subscription("sub_canc_1", customer_id="cus_canc_1", status="active"),
+                created=base,
+            ),
+        )
+
+        sub = session.scalar(
+            select(Subscription).where(
+                Subscription.stripe_subscription_id == "sub_canc_1"
+            )
+        )
+        assert sub is not None
+        assert sub.status == "canceled"
+        assert sub.canceled_at is not None
+
+
+def test_equal_timestamp_cannot_regress_paid_invoice(
+    session_factory: Callable[[], Session],
+) -> None:
+    """An older-state same-timestamp open snapshot cannot un-pay an invoice."""
+    base = int(time.time()) - 3_600
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_paid_cust",
+                event_type="customer.created",
+                obj=_customer("cus_paid_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_paid_sub",
+                event_type="customer.subscription.created",
+                obj=_subscription("sub_paid_1", customer_id="cus_paid_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_paid_inv",
+                event_type="invoice.paid",
+                obj=_invoice(
+                    "in_paid_regress",
+                    customer_id="cus_paid_1",
+                    subscription_id="sub_paid_1",
+                    status="paid",
+                    failure_reason=None,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        paid = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_paid_regress")
+        )
+        assert paid is not None
+        assert paid.status == "paid"
+        original_paid_at = paid.paid_at
+        assert original_paid_at is not None
+
+        # Open snapshot from before payment delivered at the same frozen time.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_paid_stale_update",
+                event_type="invoice.updated",
+                obj=_invoice(
+                    "in_paid_regress",
+                    customer_id="cus_paid_1",
+                    subscription_id="sub_paid_1",
+                    status="open",
+                    failure_reason=None,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        after = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_paid_regress")
+        )
+        assert after is not None
+        assert after.status == "paid"
+        assert after.paid_at == original_paid_at
+
+
+def test_equal_timestamp_events_apply_when_not_regressing_terminal_state(
+    session_factory: Callable[[], Session],
+) -> None:
+    """Terminal-state guards must not block legitimate same-timestamp transitions."""
+    base = int(time.time()) - 3_600
+    with session_factory() as session:
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_cust",
+                event_type="customer.created",
+                obj=_customer("cus_apply_1"),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_sub",
+                event_type="customer.subscription.created",
+                obj=_subscription("sub_apply_1", customer_id="cus_apply_1"),
+                created=base,
+            ),
+        )
+        # Open invoice finalized then paid at the same frozen time -> paid lands.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_finalized",
+                event_type="invoice.finalized",
+                obj=_invoice(
+                    "in_apply_1",
+                    customer_id="cus_apply_1",
+                    subscription_id="sub_apply_1",
+                    status="open",
+                    failure_reason=None,
+                    amount=10_000,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_paid",
+                event_type="invoice.paid",
+                obj=_invoice(
+                    "in_apply_1",
+                    customer_id="cus_apply_1",
+                    subscription_id="sub_apply_1",
+                    status="paid",
+                    failure_reason=None,
+                    amount=10_000,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        paid = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_apply_1")
+        )
+        assert paid is not None
+        assert paid.status == "paid"
+        assert paid.paid_at is not None
+
+        # A non-terminal same-timestamp update still applies to an open invoice.
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_finalized_2",
+                event_type="invoice.finalized",
+                obj=_invoice(
+                    "in_apply_2",
+                    customer_id="cus_apply_1",
+                    subscription_id="sub_apply_1",
+                    status="open",
+                    failure_reason=None,
+                    amount=10_000,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        process_stripe_event(
+            session,
+            _event(
+                event_id="evt_apply_update",
+                event_type="invoice.updated",
+                obj=_invoice(
+                    "in_apply_2",
+                    customer_id="cus_apply_1",
+                    subscription_id="sub_apply_1",
+                    status="open",
+                    failure_reason=None,
+                    amount=12_000,
+                    created=base,
+                ),
+                created=base,
+            ),
+        )
+        updated = session.scalar(
+            select(Invoice).where(Invoice.stripe_invoice_id == "in_apply_2")
+        )
+        assert updated is not None
+        assert updated.status == "open"
+        assert updated.amount_cents == 12_000
+
+
 def test_unsupported_and_livemode_events_are_visible(
     session_factory: Callable[[], Session],
 ) -> None:

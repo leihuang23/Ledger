@@ -349,6 +349,15 @@ def upsert_subscription(
     if cancellation_reason:
         cancellation_reason = str(cancellation_reason)[:160]
 
+    if (
+        subscription is not None
+        and subscription.status == "canceled"
+        and status != "canceled"
+    ):
+        status = "canceled"
+        canceled_at = subscription.canceled_at or canceled_at
+        cancellation_reason = subscription.cancellation_reason or cancellation_reason
+
     if subscription is None:
         subscription = Subscription(
             id=ledger_subscription_id(stripe_id),
@@ -508,9 +517,16 @@ def upsert_invoice(
     failure_reason = extract_failure_reason(invoice_obj) if status == "failed" else None
     if status == "failed" and not failure_reason:
         failure_reason = "payment_failed"
-    if invoice is not None and invoice.status == "failed" and status == "open":
+    if (
+        invoice is not None
+        and invoice.status == "failed"
+        and status in {"open", "draft"}
+    ):
         status = "failed"
         failure_reason = invoice.failure_reason or failure_reason
+    if invoice is not None and invoice.status == "paid" and status != "paid":
+        status = "paid"
+        paid_at = invoice.paid_at or paid_at
 
     if invoice is None:
         invoice = Invoice(
