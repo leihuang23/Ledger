@@ -1,7 +1,7 @@
 WEBVTT
 
 NOTE Ledger recruiter walkthrough captions for docs/assets/ledger-walkthrough-recruiter.webm
-NOTE Silent screen cut (~140s) from Phase 6 capture; captions are the narrative track.
+NOTE Silent screen cut (~136s) from Phase 6 capture; captions are the narrative track.
 NOTE Synthetic seeded portfolio data only. Stripe is optional test-mode evidence feed.
 
 00:00.000 --> 00:05.500
@@ -19,47 +19,47 @@ Published agent versions snapshot prompt, model, tools, and scopes.
 00:28.000 --> 00:38.000
 Fork a version to change capabilities without rewriting history.
 
-00:38.000 --> 00:46.000
+00:38.000 --> 00:44.000
 Tool registry: typed schemas, one implementation, one permission scope.
 
-00:46.000 --> 00:53.000
+00:44.000 --> 00:49.000
 Runtime policy requires both an enabled tool id and an allowed scope.
 
-00:53.000 --> 01:02.000
+00:49.000 --> 00:58.000
 Launch the seeded MRR-drop incident. Ordered steps and tool calls persist.
 
-01:02.000 --> 01:10.000
+00:58.000 --> 01:06.000
 Root cause names failed-renewal evidence and affected accounts.
 
-01:10.000 --> 01:14.000
+01:06.000 --> 01:10.000
 Every major claim cites SQL, tickets, or docs. Trace and cost sit with the report.
 
-01:14.000 --> 01:19.000
+01:10.000 --> 01:15.000
 Safety: customer follow-up stays a mock. High-risk actions need approval.
 
-01:19.000 --> 01:24.000
+01:15.000 --> 01:20.000
 Reject or approve is recorded. Rejection is terminal and audited.
 
-01:24.000 --> 01:33.000
+01:20.000 --> 01:29.000
 Observability: success rate, p95 latency, and estimated cost per version.
 
-01:33.000 --> 01:42.000
+01:29.000 --> 01:38.000
 Aggregates drill back into individual runs - not a vanity dashboard.
 
-01:42.000 --> 01:52.000
+01:38.000 --> 01:48.000
 Eval Studio runs the same six seeded cases against a published version.
 
-01:52.000 --> 02:02.000
+01:48.000 --> 01:58.000
 A-vs-B: remove a required evidence tool and a pass becomes a regression.
 
-02:02.000 --> 02:08.000
+01:58.000 --> 02:04.000
 Release risk is visible case-by-case, not hidden in an average score.
 
-02:08.000 --> 02:13.500
+02:04.000 --> 02:09.500
 Optional Stripe test-mode can feed billing evidence into Ledger records.
 
-02:13.500 --> 02:16.500
+02:09.500 --> 02:12.500
 Test-mode only, ingestion only - no live credentials, no checkout.
 
-02:16.500 --> 02:19.840
+02:12.500 --> 02:15.840
 Claim: cited evidence, approval gates, traces, and regression detection - not fluent prose alone.

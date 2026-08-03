@@ -4,7 +4,7 @@ Narration track for the short portfolio cut:
 
 | Asset | Path |
 | --- | --- |
-| Silent screen cut | [`docs/assets/ledger-walkthrough-recruiter.webm`](assets/ledger-walkthrough-recruiter.webm) (~140s) |
+| Silent screen cut | [`docs/assets/ledger-walkthrough-recruiter.webm`](assets/ledger-walkthrough-recruiter.webm) (~136s) |
 | Captions (WebVTT) | [`docs/assets/ledger-walkthrough-recruiter.vtt`](assets/ledger-walkthrough-recruiter.vtt) |
 | Full five-minute reference | [`docs/demo-script.md`](demo-script.md) + [`docs/assets/ledger-walkthrough.webm`](assets/ledger-walkthrough.webm) (~196s) |
 
@@ -16,7 +16,7 @@ Narration track for the short portfolio cut:
 - All UI data is **synthetic seeded portfolio data**, not customer production data.
 - Stripe appears only as an **optional test-mode evidence feed** in narration; it is not required for the demo path and is not shown as a live merchant platform.
 
-Spoken length at a normal pace is about **2 minutes 15 seconds to 2 minutes 40 seconds** (~310-340 words). Match the visual segments below; pause on dense UI rather than racing the captions.
+Spoken length at a normal pace is about **2 minutes 20 seconds to 2 minutes 40 seconds** (~360 words). Match the visual segments below; pause on dense UI rather than racing the captions.
 
 ## Visual map (output cut)
 
@@ -24,12 +24,12 @@ Spoken length at a normal pace is about **2 minutes 15 seconds to 2 minutes 40 s
 | --- | --- | --- |
 | 0:00-0:20 | 0:00-0:20 | Home: MRR anomaly, failed renewals, seeded incidents |
 | 0:20-0:38 | 0:24-0:42 | Agent version: immutable publish snapshot / fork |
-| 0:38-0:53 | 0:55-1:10 | Tool registry: schemas, scopes, implementation refs |
-| 0:53-1:14 | 1:18-1:39 | Run detail: root cause, citations, trace, cost, blocked tool |
-| 1:14-1:24 | 1:39-1:49 | Approvals queue: high-risk drafts rejected with audit |
-| 1:24-1:42 | 1:50-2:08 | Observability: success, p95 latency, estimated cost |
-| 1:42-1:52 | 2:28-2:38 | Eval Studio: fresh dataset run for a published version |
-| 1:52-2:20 | 2:48-3:16 | A-vs-B comparison: intentional regression highlighted |
+| 0:38-0:49 | 0:55-1:06 | Tool registry: schemas, scopes, implementation refs |
+| 0:49-1:10 | 1:18-1:39 | Run detail: root cause, citations, trace, cost, blocked tool |
+| 1:10-1:20 | 1:39-1:49 | Approvals queue: high-risk drafts rejected with audit |
+| 1:20-1:38 | 1:50-2:08 | Observability: success, p95 latency, estimated cost |
+| 1:38-1:48 | 2:28-2:38 | Eval Studio: fresh dataset run for a published version |
+| 1:48-2:16 | 2:48-3:16 | A-vs-B comparison: intentional regression highlighted |
 
 ## Narration
 
@@ -39,29 +39,29 @@ Spoken length at a normal pace is about **2 minutes 15 seconds to 2 minutes 40 s
 >
 > The prompt is simple: week-over-week paid MRR dropped. Failed renewals and affected accounts show up as business facts before any model prose.”
 
-### 0:20-0:53 - Investigation setup
+### 0:20-0:49 - Investigation setup
 
 > “Published agent versions are immutable snapshots of prompt, model, tools, and permission scopes. Forking a version is how you change capabilities without rewriting history.
 >
 > The tool surface is explicit: typed input and output schemas, one implementation binding, and one fixed scope per tool. Runtime policy requires both an enabled tool id and an allowed scope.”
 
-### 0:53-1:14 - Evidence, conclusion, citations
+### 0:49-1:10 - Evidence, conclusion, citations
 
 > “We launch the seeded MRR-drop incident. The run records ordered steps: revenue SQL, account detail, support tickets, and knowledge search when enabled.
 >
 > The report states a root cause with medium confidence, names affected accounts, and cites retrieved evidence for every major claim. Blocked tool calls stay in the timeline instead of vanishing into server logs. A local or hosted trace id, token counts, and estimated cost sit next to the report.”
 
-### 1:14-1:24 - Safety (approval gate)
+### 1:10-1:20 - Safety (approval gate)
 
 > “Customer-facing follow-up is a mock action only. High-risk drafts enter a global approval queue. Nothing sends until an operator approves; rejection is terminal and writes an audit event. In this recording both high-risk requests are rejected so the run can finish safely.”
 
-### 1:24-1:52 - Auditability (trace, ops, eval)
+### 1:20-1:48 - Auditability (trace, ops, eval)
 
 > “The control plane aggregates success rate, p95 latency, and estimated cost per published version, then drills back into individual runs.
 >
 > Eval Studio runs the same six seeded incidents against a version so quality is measurable, not anecdotal.”
 
-### 1:52-2:20 - Regression + Stripe honesty + close
+### 1:48-2:16 - Regression + Stripe honesty + close
 
 > “Here baseline versus candidate shows a deliberate regression: remove a required evidence tool and a case that passed flips to fail. Release risk is visible, not buried in an average score.
 >
@@ -73,15 +73,15 @@ Spoken length at a normal pace is about **2 minutes 15 seconds to 2 minutes 40 s
 
 | Section | Approx. words | Target spoken time |
 | --- | --- | --- |
-| Problem | 70 | ~30s (overlap holds) |
-| Investigation setup | 65 | ~28s |
-| Evidence / conclusion | 85 | ~35s |
-| Approval safety | 45 | ~18s |
-| Audit / eval | 40 | ~16s |
-| Regression + Stripe + close | 90 | ~38s |
-| **Total** | **~395** | **~2:45 if spoken fully** |
+| Problem | 50 | ~20s |
+| Investigation setup | 55 | ~23s |
+| Evidence / conclusion | 70 | ~29s |
+| Approval safety | 45 | ~19s |
+| Audit / eval | 40 | ~17s |
+| Regression + Stripe + close | 100 | ~42s |
+| **Total** | **~360** | **~2:30 if spoken fully** |
 
-If a recorded VO must finish inside the ~140s silent cut, trim Stripe to one sentence and compress the setup block; keep problem, citations, approval gate, and regression intact.
+If a recorded VO must finish inside the ~136s silent cut, trim Stripe to one sentence and compress the setup block; keep problem, citations, approval gate, and regression intact.
 
 ## Re-export commands
 
@@ -92,7 +92,7 @@ Regenerate the short cut after a new full capture (`cd apps/web && npm run portf
 ffmpeg -y -i docs/assets/ledger-walkthrough.webm -filter_complex "\
 [0:v]trim=start=0:end=20,setpts=PTS-STARTPTS[v0];\
 [0:v]trim=start=24:end=42,setpts=PTS-STARTPTS[v1];\
-[0:v]trim=start=55:end=70,setpts=PTS-STARTPTS[v2];\
+[0:v]trim=start=55:end=66,setpts=PTS-STARTPTS[v2];\
 [0:v]trim=start=78:end=99,setpts=PTS-STARTPTS[v3];\
 [0:v]trim=start=99:end=109,setpts=PTS-STARTPTS[v4];\
 [0:v]trim=start=110:end=128,setpts=PTS-STARTPTS[v5];\
