@@ -127,7 +127,7 @@ Regenerate via `cd apps/web && npm run portfolio:assets` when UI changes (see `d
 
 ## Explicitly not done in Day 1
 
-- No Stripe code, webhooks, credentials, or Test Clock scenario.
+- No Stripe code was in the Day 1 baseline; the test-mode evidence adapter (`app/stripe_adapter/`, webhooks, credentials, Test Clock scenario) is implemented on this branch and its PR is in review.
 - No public deploy changes; demo safety topology (`APP_ENV=demo`, operator gates) unchanged.
 - No invented eval pass rates from this environment.
 - Portfolio launch plan file may live outside this branch until tracked separately; this checklist is the Day 1 tracked artifact.
