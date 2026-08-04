@@ -5,7 +5,7 @@
 #
 # Usage:
 #   ./scripts/verify-public-demo.sh
-#   API_BASE_URL=https://ledger-api.onrender.com WEB_BASE_URL=https://ledger.leihuang.me \
+#   API_BASE_URL=https://ledger-api-xvoe.onrender.com WEB_BASE_URL=https://ledger.leihuang.me \
 #     ./scripts/verify-public-demo.sh
 #
 # Env:
