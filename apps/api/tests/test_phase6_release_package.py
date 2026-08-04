@@ -12,10 +12,17 @@ def test_render_blueprint_wires_free_demo_safety_and_managed_dependencies() -> N
     assert "type: worker" not in blueprint
     assert "plan: starter" not in blueprint
     assert "plan: basic-256mb" not in blueprint
-    assert blueprint.count("plan: free") == 3
+    # The Blueprint manages only the API web service and Key Value: Postgres
+    # moved to an external Supabase free project, so exactly two Free plans.
+    assert blueprint.count("plan: free") == 2
+    assert "databases:" not in blueprint
+    assert "fromDatabase:" not in blueprint
+    assert "ledger-postgres" not in blueprint
     assert "persistenceMode: off" in blueprint
-    assert "fromDatabase:" in blueprint
-    assert "property: connectionString" in blueprint
+    # DATABASE_URL is a manually-set server-only secret pointing at the
+    # Supabase Supavisor session pool; it must not be Blueprint-synced.
+    assert "- key: DATABASE_URL" in blueprint
+    assert "sync: false" in blueprint
     assert "APP_ENV" in blueprint and "value: demo" in blueprint
     assert "ALLOW_UNSAFE_BOOTSTRAP_SEED" in blueprint
     assert "DEMO_OPERATOR_TOKEN" in blueprint
@@ -29,9 +36,12 @@ def test_free_render_tradeoffs_and_recovery_are_documented() -> None:
     deployment = ROOT.joinpath("docs/deployment.md").read_text(encoding="utf-8")
 
     assert "about one minute" in deployment
-    assert "30 days after creation" in deployment
-    assert "Manual Sync" in deployment
     assert "no background worker" in deployment
+    # Postgres now lives on Supabase: the docs must explain the Supavisor
+    # session-pool connection choice and the free-project pause/restore path.
+    assert "Supavisor" in deployment
+    assert "paused" in deployment
+    assert "Restore a paused Supabase project" in deployment
 
 
 def test_api_container_honors_host_port_contract() -> None:

@@ -1,10 +1,10 @@
 # Deployment Guide
 
-The tracked public-demo topology uses Cloudflare Workers for the Next.js frontend and a zero-cost Render Blueprint for the FastAPI API, Postgres/pgvector, and Redis-compatible Key Value service. The public Render path has no background worker. It serves only pre-seeded, anonymous read-only data; async investigations and eval execution remain available in local or paid operator deployments. The frontend is adapted with `@opennextjs/cloudflare`; the backend remains on Render. This is a deployment template, not proof that a public environment currently exists.
+The tracked public-demo topology uses Cloudflare Workers for the Next.js frontend, a zero-cost Render Blueprint for the FastAPI API and the Redis-compatible Key Value service, and an external Supabase free project for Postgres/pgvector. The public Render path has no background worker. It serves only pre-seeded, anonymous read-only data; async investigations and eval execution remain available in local or paid operator deployments. The frontend is adapted with `@opennextjs/cloudflare`; the backend remains on Render. This is a deployment template, not proof that a public environment currently exists.
 
 **Public demo target origin:** `https://ledger.leihuang.me` (Cloudflare Worker) with the Render web service as the API origin (`https://ledger-api-xvoe.onrender.com` in the tracked Worker config). If the Render hostname changes, update `apps/web/wrangler.jsonc` and redeploy. The backend CORS value remains the exact browser origin `https://ledger.leihuang.me`.
 
-The provider configuration follows the current official [Render free-instance limits](https://render.com/docs/free), [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render pgvector support](https://render.com/docs/postgresql-extensions), [OpenNext Cloudflare setup](https://opennext.js.org/cloudflare/get-started), and [Cloudflare Workers custom-domain configuration](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). OpenNext documents support for all Next.js 16 minor and patch releases. The tracked adapter version also declares a Next.js peer range of `>=16.2.11`, and the frontend is pinned within Next 16 above that floor.
+The provider configuration follows the current official [Render free-instance limits](https://render.com/docs/free), [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Supabase pgvector extension docs](https://supabase.com/docs/guides/database/extensions/pgvector), [Supabase connection options (Supavisor pooler)](https://supabase.com/docs/guides/database/connecting-to-postgres), [OpenNext Cloudflare setup](https://opennext.js.org/cloudflare/get-started), and [Cloudflare Workers custom-domain configuration](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). OpenNext documents support for all Next.js 16 minor and patch releases. The tracked adapter version also declares a Next.js peer range of `>=16.2.11`, and the frontend is pinned within Next 16 above that floor.
 
 ## 0. Captain checklist: anonymous public read-only demo
 
@@ -21,54 +21,65 @@ The `leihuang.me` zone already uses Cloudflare DNS. `apps/web/wrangler.jsonc` de
 5. Confirm from a clean network: `dig +short ledger.leihuang.me @1.1.1.1` resolves and `curl -I https://ledger.leihuang.me` reaches the Worker.
 6. Optional API hostname: either use the default `*.onrender.com` service URL or a separate custom domain on Render. Update both public API vars in `wrangler.jsonc` if it changes.
 
-### 0.2 Render backend (Blueprint from `render.yaml`)
+### 0.2 Render backend and Supabase Postgres (Blueprint from `render.yaml`)
 
 1. Use a Render Hobby workspace with no payment method attached. This is required to make the hard cost ceiling $0: if included bandwidth or build minutes are exhausted, Render suspends service or builds instead of charging overages.
 2. Authenticate to Render (dashboard or CLI). Install CLI only if non-interactive login is available.
-3. Connect repo `leihuang23/Ledger` and apply the Blueprint in `render.yaml`.
-4. Before confirming, verify that the Blueprint contains exactly three Render resources and every resource shows the Free instance type:
+3. Create the external Supabase free project (see **Supabase connection configuration** below) and record its pooler host, project ref, and database password.
+4. Connect repo `leihuang23/Ledger` and apply the Blueprint in `render.yaml`.
+5. Before confirming, verify that the Blueprint contains exactly two Render resources and every resource shows the Free instance type:
    - `ledger-api` web service
-   - `ledger-postgres` Postgres database
    - `ledger-redis` Key Value instance
    - Do not add `ledger-worker`; Render does not offer a free background-worker instance type.
-5. Set **`BACKEND_CORS_ORIGINS`** to the exact browser origin only, for example:
+   - Postgres is intentionally external (Supabase), so the Blueprint has no `databases:` block.
+6. Set **`DATABASE_URL`** on the API service as a manually-set server-only secret (`sync: false` in the Blueprint) pointing at the Supabase Supavisor session pool:
+   - `postgresql+psycopg://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require`
+   - Never commit this value or paste it into git/chat logs; it lives only in the Render API env.
+7. Set **`BACKEND_CORS_ORIGINS`** to the exact browser origin only, for example:
    - `https://ledger.leihuang.me`
    - Comma-separated list only if you truly need more than one trusted origin.
-6. Confirm generated server-only secrets on the API service (do not commit or paste into git/chat logs):
+8. Confirm generated server-only secrets on the API service (do not commit or paste into git/chat logs):
    - `DEMO_OPERATOR_TOKEN`
    - `EVAL_RUN_TOKEN`
    - `DOCUMENT_INGEST_TOKEN`
-7. Confirm Blueprint defaults that must remain for public safety:
+9. Confirm Blueprint defaults that must remain for public safety:
    - `APP_ENV=demo`
    - `LLM_PROVIDER=none` (or private operator override later)
    - `OBSERVABILITY_FULL_PAYLOADS=false`
    - No Stripe live/test secrets required for the anonymous public surface
-8. Wait until `GET https://<api-host>/ready` returns 200. Startup runs Alembic and seeds an empty demo DB under an advisory lock.
-9. Confirm the public API base URL matches both Worker vars in `apps/web/wrangler.jsonc` (`https://ledger-api-xvoe.onrender.com` by default).
+10. Wait until `GET https://<api-host>/ready` returns 200. Startup runs Alembic and seeds an empty demo DB under an advisory lock.
+11. Confirm the public API base URL matches both Worker vars in `apps/web/wrangler.jsonc` (`https://ledger-api-xvoe.onrender.com` by default).
 
-Why the Blueprint sets `ALLOW_UNSAFE_BOOTSTRAP_SEED=true`: a managed Postgres hostname is intentionally rejected by the local-only seed safety check. Startup seeding still occurs only when the accounts table is empty. Destructive CLI reseeding continues to require the explicit `--allow-destructive` flag.
+#### Supabase connection configuration
+
+- **Use the Supavisor session pool on port 5432** (`aws-0-<region>.pooler.supabase.com`), not the transaction pool on port 6543. Startup bootstrap takes a session-level `pg_advisory_lock` (`app/bootstrap.py`), which a transaction pool can strand on a recycled pooled connection; session pooling preserves per-connection semantics.
+- **Never use the direct connection hostname** (`db.<project-ref>.supabase.co`) from Render: free Render instances have IPv4-only egress, while Supabase direct connections are IPv6-only on the free plan. The pooler host resolves over IPv4.
+- Connect as user `postgres.<project-ref>` (the Supabase primary role). The Alembic migration `20260612_0003_add_knowledge_documents.py` runs `CREATE EXTENSION IF NOT EXISTS vector`, which requires that role; Supabase installs it into the `extensions` schema and its default `search_path` already resolves vector types and operators.
+- Keep `sslmode=require`; the pooler enforces TLS.
+- Choose the Supabase project region closest to the Render `ledger-api` region to minimize per-query cross-provider latency.
+- Free-tier storage is 500 MB; the synthetic demo seed is far below that.
+
+Why the Blueprint sets `ALLOW_UNSAFE_BOOTSTRAP_SEED=true`: the Supabase pooler hostname is intentionally rejected by the local-only seed safety check, exactly like any managed Postgres hostname. Startup seeding still occurs only when the accounts table is empty. Destructive CLI reseeding continues to require the explicit `--allow-destructive` flag.
 
 The API accepts Render's `postgresql://` connection string and normalizes it to SQLAlchemy's installed `postgresql+psycopg://` driver. The container also honors Render's `PORT` value.
 
 #### Free-tier behavior and tradeoffs
 
 - Render spins down a Free web service after 15 minutes without inbound traffic. The first request after idle triggers a cold start that Render says takes about one minute. Ledger also runs migrations and its empty-database seed check before starting the API, so recovery can take longer. The browser may show Render's loading page during this interval.
-- Free Postgres is limited to 1 GB and expires 30 days after creation. At expiry it becomes inaccessible, the API readiness check returns 503, and the public demo remains unavailable until the database is recreated. Render retains the expired database for a 14-day paid-upgrade grace period and then deletes it. Free databases have no Render backups, point-in-time recovery, or managed connection pooling.
+- Free Postgres is no longer a Render resource. The external Supabase free project provides 500 MB of database storage and pauses automatically after one week of inactivity. Traffic through the public API keeps the project active; if it pauses, the API readiness check returns 503 until the project is restored. Unlike the expired Render free database, a paused Supabase project retains its data and restores without reseeding. See **Restore a paused Supabase project**.
 - Free Key Value is limited to 25 MB and 50 connections, and `persistenceMode: off` is mandatory because the free instance is memory-only. A restart clears cached knowledge-search results and rate-limit counters. The source data remains in Postgres, and all mutation gates remain fail-closed, so losing Key Value state does not remove evidence or authorize a write.
 - The public Blueprint intentionally has no background worker. Token-gated async investigations, control-plane runs, eval execution, scheduled stale-run cleanup, and other Celery processing are absent on this path. The UI can inspect pre-seeded runs, approvals, traces, and eval results, but it cannot create or process new ones. Use the local Compose stack or a separately protected paid operator deployment for those features.
 - Free services remain subject to Render's monthly included instance hours, outbound bandwidth, and build minutes. With no payment method attached, exhaustion causes suspension or disabled builds rather than a charge. This preserves the $0 ceiling but does not guarantee uninterrupted availability.
 
-#### Re-create and reseed Free Postgres after day 30
+#### Restore a paused Supabase project
 
-The public data is synthetic and deterministic, so the zero-cost recovery path intentionally discards the expired database rather than pretending it has a backup:
+The Supabase free plan pauses projects after one week without activity. A paused database makes `/ready` return 503 while the API container itself still boots. The demo data is synthetic but preserved, so recovery is a restore, not a reseed:
 
-1. In the Render Dashboard, confirm `ledger-postgres` is expired and `GET https://<api-host>/ready` reports 503.
-2. Delete the expired `ledger-postgres` resource in the Render Dashboard. This permanently discards its data. Do not do this if the database contains anything other than the expected synthetic demo seed.
-3. Open the existing Ledger Blueprint and click **Manual Sync**. Keep `ledger-postgres` in `render.yaml`; Render recreates a Blueprint-managed resource that was deleted outside the Blueprint, and the `plan: free` definition creates a fresh 1 GB Free Postgres instance.
-4. Wait for the Blueprint sync and `ledger-api` deploy to finish. Its `DATABASE_URL` reference is refreshed to the replacement database. The API entrypoint runs `alembic upgrade head`, then automatically seeds the empty database because `ALLOW_UNSAFE_BOOTSTRAP_SEED=true` is scoped to this intentional demo bootstrap.
-5. Confirm the API logs show migrations and `Seeded empty database`, wait for `/ready` to return 200, then rerun `./scripts/verify-public-demo.sh` and the read-only Playwright suite from section 0.4.
+1. In the Supabase dashboard, confirm the project status is paused and `GET https://<api-host>/ready` reports 503.
+2. Click **Restore project** in the Supabase dashboard. Restoration takes a few minutes and keeps all tables, migrations, and seed data intact.
+3. Wait for `/ready` to return 200, then rerun `./scripts/verify-public-demo.sh` and the read-only Playwright suite from section 0.4.
 
-Record the new creation date and schedule this procedure before the next 30-day expiry. There is an outage between expiry and successful reseeding, and there is no zero-cost in-place renewal.
+To avoid an unexpected pause, visit the public demo or check the Supabase dashboard at least weekly and schedule a recurring reminder. If the project is ever deleted instead of paused, recreate it with the same region, update the Render `DATABASE_URL` secret, and let the startup bootstrap migrate and reseed the empty database.
 
 ### 0.3 Cloudflare Workers frontend (`apps/web`)
 
@@ -130,7 +141,7 @@ If Wrangler or Render is not logged in non-interactively, stop after the in-repo
 
 | # | Action | Where |
 | --- | --- | --- |
-| 1 | Apply `render.yaml`; verify all three resources are Free; wait for `/ready`; confirm the actual public API URL | Render |
+| 1 | Apply `render.yaml`; verify both resources are Free; set the Supabase `DATABASE_URL` secret; wait for `/ready`; confirm the actual public API URL | Render |
 | 2 | Set `BACKEND_CORS_ORIGINS=https://ledger.leihuang.me` exactly | Render API env |
 | 3 | Update both `wrangler.jsonc` API vars if the Render URL differs; rebuild and revalidate | Repo |
 | 4 | Confirm Wrangler selects the Cloudflare account that owns the `leihuang.me` zone | Cloudflare CLI |
@@ -138,14 +149,14 @@ If Wrangler or Render is not logged in non-interactively, stop after the in-repo
 | 6 | Confirm TLS and the custom domain, then run `./scripts/verify-public-demo.sh` with public URLs | Any clean network |
 | 7 | Run the read-only Playwright suite against `https://ledger.leihuang.me` | Any clean network |
 | 8 | Keep generated backend tokens server-only; never put them in Worker vars, secrets, client config, or git | Render / secret manager |
-| 9 | Record the Free Postgres creation date and schedule the day-30 re-create/reseed procedure in section 0.2 | Operations calendar |
+| 9 | Record the Supabase project ref and schedule a weekly visit or dashboard check to avoid a free-project pause (section 0.2) | Operations calendar |
 
 ## 1. Create the Render backend
 
 See section 0.2 for the public-demo checklist. Summary:
 
 1. Connect the repository to Render and create a Blueprint from `render.yaml`.
-2. Verify the web service, Postgres, and Key Value plans are all Free and that no background worker is present.
+2. Verify the web service and Key Value plans are both Free, no background worker is present, and the external Supabase `DATABASE_URL` secret is set on the API service.
 3. Enter `BACKEND_CORS_ORIGINS` when Render prompts for it (exact Cloudflare Worker production origin).
 4. Let the API become ready at `/ready`.
 5. Confirm generated `DEMO_OPERATOR_TOKEN`, `EVAL_RUN_TOKEN`, and `DOCUMENT_INGEST_TOKEN` in the API service only.
@@ -209,7 +220,7 @@ Prefer `./scripts/verify-public-demo.sh` (section 0.4). Manual checklist without
 
 ## 5. Local public-demo proof (no cloud credentials)
 
-Run the Render-shaped backend with Compose and the frontend through the OpenNext Worker preview. Use separate terminals for the preview and verification commands:
+Run the Render-shaped backend with Compose and the frontend through the OpenNext Worker preview. The local path uses Compose Postgres and never touches the Supabase project. Use separate terminals for the preview and verification commands:
 
 ```bash
 cp .env.public-demo.example .env.public-demo
@@ -253,7 +264,7 @@ The complete no-secret samples live in `.env.example`, `.env.public-demo.example
 - `EVAL_RUN_TOKEN` separately gates eval execution.
 - `OPERATOR_UI_ENABLED=false` keeps anonymous public Next.js deployments read-only; set it to `true` only behind deployment authentication for recording/operator sessions.
 - `DOCUMENT_INGEST_TOKEN` gates HTTP knowledge ingestion.
-- `DATABASE_URL`, `REDIS_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` connect managed state.
+- `DATABASE_URL` connects managed state; for the public demo it is the Supabase Supavisor session-pool URL (`postgresql+psycopg://postgres.<project-ref>:<db-password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require`). The password is a Render server-only secret. `REDIS_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` connect the remaining managed state.
 - `BACKEND_CORS_ORIGINS` lists exact trusted browser origins (for public demo: `https://ledger.leihuang.me`).
 - `RATE_LIMIT_MUTATIONS_PER_MINUTE` and `RATE_LIMIT_SEARCH_PER_MINUTE` bound public traffic.
 - `LOG_FORMAT=json` is recommended for hosted log ingestion.

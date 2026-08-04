@@ -1,4 +1,8 @@
 # Zero-cost Render Blueprint for the public read-only FastAPI API.
+# Postgres (with pgvector) is provided by an external Supabase free project;
+# the Blueprint manages only the API web service and the free Key Value
+# instance. `DATABASE_URL` is a manually-set server-only secret pointing at the
+# Supabase Supavisor session pool (port 5432); see docs/deployment.md.
 # Async Celery execution is intentionally omitted because Render background
 # workers have no free instance type and anonymous demo mutations are blocked.
 # The Next.js app is deployed separately from apps/web on Cloudflare Workers.
@@ -25,9 +29,7 @@ services:
       - key: APP_VERSION
         value: phase-6
       - key: DATABASE_URL
-        fromDatabase:
-          name: ledger-postgres
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: ledger-redis
@@ -69,11 +71,3 @@ services:
         value: "10"
       - key: RATE_LIMIT_SEARCH_PER_MINUTE
         value: "60"
-
-databases:
-  - name: ledger-postgres
-    plan: free
-    postgresMajorVersion: "16"
-    databaseName: ledger
-    user: ledger
-    ipAllowList: []
