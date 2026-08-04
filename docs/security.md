@@ -73,7 +73,7 @@ This is a public read-only demo with synthetic data. Its public surface is read-
 - Set non-empty, independent operator, eval, and ingestion tokens.
 - Copy tokens only into protected server-side service settings; never use `NEXT_PUBLIC_` for secrets.
 - Restrict CORS to the deployed frontend origin.
-- Keep Postgres and Key Value on private networking.
+- Keep Postgres and Key Value on private networking in paid deployments. The Free public-demo Blueprint cannot use Render private networking: it exposes both via public TLS endpoints (`ipAllowList: []`), which is acceptable only because the data is synthetic and the connection credentials are server-only generated secrets.
 - Keep hosted trace payloads redacted unless synthetic export is intentional.
 - Rotate tokens after recordings or public review sessions.
 - Do not connect real customer data or real action providers without revising AGENTS.md, the authorization model, retention policy, and threat model.
