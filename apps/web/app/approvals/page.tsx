@@ -73,7 +73,7 @@ export default async function ApprovalsPage({
           <h2>Queue filters</h2>
           <Link href="/approvals">Clear filters</Link>
         </div>
-        <form action="/approvals" method="get">
+        <form action="/approvals" method="get" className="approval-filter-form">
           {includeDecided ? (
             <>
               {/* Carry include_decided so "All statuses" history view survives a filter re-apply; "Clear filters" omits it to return to pending. */}
