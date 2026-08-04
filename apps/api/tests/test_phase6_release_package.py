@@ -53,7 +53,8 @@ def test_cloudflare_worker_config_declares_public_demo_contract() -> None:
     assert '"custom_domain": true' in worker_config
     assert '"OPERATOR_UI_ENABLED": "false"' in worker_config
     assert (
-        '"NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com"' in worker_config
+        '"NEXT_PUBLIC_API_BASE_URL": "https://ledger-api-xvoe.onrender.com"'
+        in worker_config
     )
     assert "poweredByHeader: false" in next_config
     assert "Strict-Transport-Security" in next_config

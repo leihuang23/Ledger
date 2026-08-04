@@ -37,10 +37,13 @@ test('Cloudflare Worker config preserves the anonymous public demo contract', ()
     wranglerConfig,
     /"preview": \{[\s\S]*?"workers_dev": true,[\s\S]*?"routes": \[\]/,
   );
-  assert.match(wranglerConfig, /"API_INTERNAL_BASE_URL": "https:\/\/ledger-api\.onrender\.com"/);
   assert.match(
     wranglerConfig,
-    /"NEXT_PUBLIC_API_BASE_URL": "https:\/\/ledger-api\.onrender\.com"/,
+    /"API_INTERNAL_BASE_URL": "https:\/\/ledger-api-xvoe\.onrender\.com"/,
+  );
+  assert.match(
+    wranglerConfig,
+    /"NEXT_PUBLIC_API_BASE_URL": "https:\/\/ledger-api-xvoe\.onrender\.com"/,
   );
   assert.match(wranglerConfig, /"OPERATOR_UI_ENABLED": "false"/);
 
@@ -48,10 +51,10 @@ test('Cloudflare Worker config preserves the anonymous public demo contract', ()
   assert.match(devVarsExample, /^NEXT_PUBLIC_API_BASE_URL=http:\/\/localhost:8000$/m);
   assert.match(devVarsExample, /^OPERATOR_UI_ENABLED=false$/m);
 
-  assert.match(envProduction, /^API_INTERNAL_BASE_URL=https:\/\/ledger-api\.onrender\.com$/m);
+  assert.match(envProduction, /^API_INTERNAL_BASE_URL=https:\/\/ledger-api-xvoe\.onrender\.com$/m);
   assert.match(
     envProduction,
-    /^NEXT_PUBLIC_API_BASE_URL=https:\/\/ledger-api\.onrender\.com$/m,
+    /^NEXT_PUBLIC_API_BASE_URL=https:\/\/ledger-api-xvoe\.onrender\.com$/m,
   );
   assert.match(envProduction, /^OPERATOR_UI_ENABLED=false$/m);
 

@@ -16,8 +16,8 @@
     }
   ],
   "vars": {
-    "API_INTERNAL_BASE_URL": "https://ledger-api.onrender.com",
-    "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com",
+    "API_INTERNAL_BASE_URL": "https://ledger-api-xvoe.onrender.com",
+    "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api-xvoe.onrender.com",
     "OPERATOR_UI_ENABLED": "false"
   },
   "env": {
@@ -26,8 +26,8 @@
       "preview_urls": true,
       "routes": [],
       "vars": {
-        "API_INTERNAL_BASE_URL": "https://ledger-api.onrender.com",
-        "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api.onrender.com",
+        "API_INTERNAL_BASE_URL": "https://ledger-api-xvoe.onrender.com",
+        "NEXT_PUBLIC_API_BASE_URL": "https://ledger-api-xvoe.onrender.com",
         "OPERATOR_UI_ENABLED": "false"
       }
     }

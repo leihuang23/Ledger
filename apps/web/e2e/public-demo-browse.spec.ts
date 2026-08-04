@@ -50,7 +50,10 @@ test.describe('public demo browse', () => {
     // Evals studio shows seeded regression results; mutating run control is disabled
     await page.getByRole('navigation').getByRole('link', { name: 'Evals' }).click();
     await page.waitForURL('/evals');
-    await expect(page.getByRole('heading', { name: /Eval/i }).first()).toBeVisible();
+    // The public demo API can cold-start on the free Render tier immediately after deploy.
+    await expect(page.getByRole('heading', { name: /Eval/i }).first()).toBeVisible({
+      timeout: 15000,
+    });
     await expect(page.getByText(/regression|pass rate|eval/i).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run selected dataset' })).toBeDisabled();
 

@@ -2,7 +2,7 @@
 
 The tracked public-demo topology uses Cloudflare Workers for the Next.js frontend and a zero-cost Render Blueprint for the FastAPI API, Postgres/pgvector, and Redis-compatible Key Value service. The public Render path has no background worker. It serves only pre-seeded, anonymous read-only data; async investigations and eval execution remain available in local or paid operator deployments. The frontend is adapted with `@opennextjs/cloudflare`; the backend remains on Render. This is a deployment template, not proof that a public environment currently exists.
 
-**Public demo target origin:** `https://ledger.leihuang.me` (Cloudflare Worker) with the Render web service as the API origin (`https://ledger-api.onrender.com` in the tracked Worker config). If the Render hostname changes, update `apps/web/wrangler.jsonc` and redeploy. The backend CORS value remains the exact browser origin `https://ledger.leihuang.me`.
+**Public demo target origin:** `https://ledger.leihuang.me` (Cloudflare Worker) with the Render web service as the API origin (`https://ledger-api-xvoe.onrender.com` in the tracked Worker config). If the Render hostname changes, update `apps/web/wrangler.jsonc` and redeploy. The backend CORS value remains the exact browser origin `https://ledger.leihuang.me`.
 
 The provider configuration follows the current official [Render free-instance limits](https://render.com/docs/free), [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render pgvector support](https://render.com/docs/postgresql-extensions), [OpenNext Cloudflare setup](https://opennext.js.org/cloudflare/get-started), and [Cloudflare Workers custom-domain configuration](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/). OpenNext documents support for all Next.js 16 minor and patch releases. The tracked adapter version also declares a Next.js peer range of `>=16.2.11`, and the frontend is pinned within Next 16 above that floor.
 
@@ -44,7 +44,7 @@ The `leihuang.me` zone already uses Cloudflare DNS. `apps/web/wrangler.jsonc` de
    - `OBSERVABILITY_FULL_PAYLOADS=false`
    - No Stripe live/test secrets required for the anonymous public surface
 8. Wait until `GET https://<api-host>/ready` returns 200. Startup runs Alembic and seeds an empty demo DB under an advisory lock.
-9. Confirm the public API base URL matches both Worker vars in `apps/web/wrangler.jsonc` (`https://ledger-api.onrender.com` by default).
+9. Confirm the public API base URL matches both Worker vars in `apps/web/wrangler.jsonc` (`https://ledger-api-xvoe.onrender.com` by default).
 
 Why the Blueprint sets `ALLOW_UNSAFE_BOOTSTRAP_SEED=true`: a managed Postgres hostname is intentionally rejected by the local-only seed safety check. Startup seeding still occurs only when the accounts table is empty. Destructive CLI reseeding continues to require the explicit `--allow-destructive` flag.
 
@@ -78,8 +78,8 @@ Record the new creation date and schedule this procedure before the next 30-day 
 
 | Variable | Public demo value | Notes |
 | --- | --- | --- |
-| `API_INTERNAL_BASE_URL` | `https://ledger-api.onrender.com` | Server-side Worker fetch base; replace if Render assigns a different URL |
-| `NEXT_PUBLIC_API_BASE_URL` | `https://ledger-api.onrender.com` | Browser-visible API origin; embedded during build and not a secret |
+| `API_INTERNAL_BASE_URL` | `https://ledger-api-xvoe.onrender.com` | Server-side Worker fetch base; replace if Render assigns a different URL |
+| `NEXT_PUBLIC_API_BASE_URL` | `https://ledger-api-xvoe.onrender.com` | Browser-visible API origin; embedded during build and not a secret |
 | `OPERATOR_UI_ENABLED` | `false` | Required for anonymous public demo |
 
 The same three public values also live in the tracked `apps/web/.env.production`, which `next build` reads to inline `NEXT_PUBLIC_API_BASE_URL` into the browser bundle. Keep it in sync with the `vars` above.
