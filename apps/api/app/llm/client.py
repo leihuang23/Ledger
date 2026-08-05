@@ -21,8 +21,16 @@ class VersionConfigLike(Protocol):
 class LLMClient(Protocol):
     provider: str
     model: str
+    # ``agentic`` advertises whether the client can drive the bounded ReAct
+    # investigation loop (``app.agent.loop``): it requires ``complete_raw``,
+    # which returns unparsed LLM text so the loop can apply its own decision
+    # protocol instead of the single-shot diagnosis schema.
+    agentic: bool
 
     def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+        ...
+
+    def complete_raw(self, prompt: str) -> tuple[str, LLMUsage]:
         ...
 
 
@@ -30,13 +38,19 @@ class NoopLLMClient:
     """Fallback client used when no LLM provider is configured.
 
     Returns a low-confidence diagnosis so the deterministic classifier remains
-    the source of truth in that mode.
+    the source of truth in that mode. ``agentic`` is False, so the workflow
+    stays on the deterministic pipeline and never enters the tool loop.
     """
 
     provider: str = "none"
     model: str = "none"
+    agentic: bool = False
 
     def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+        raw, usage = self.complete_raw(prompt)
+        return parse_llm_response(raw), usage
+
+    def complete_raw(self, prompt: str) -> tuple[str, LLMUsage]:
         response = LLMResponse(
             root_cause="LLM is disabled; falling back to deterministic diagnosis.",
             confidence="low",
@@ -53,7 +67,7 @@ class NoopLLMClient:
             used_llm=False,
             fallback_reason="llm_provider=none",
         )
-        return response, usage
+        return response.model_dump_json(), usage
 
 
 class _HTTPClient:
@@ -90,6 +104,7 @@ class OpenAIClient:
     ) -> None:
         self.provider = "openai"
         self.model = model
+        self.agentic = True
         self._api_key = api_key
         self._temperature = temperature
         self._max_tokens = max_tokens
@@ -97,7 +112,7 @@ class OpenAIClient:
         self._system_prompt = compose_system_prompt(system_prompt)
         self._http = _HTTPClient(transport=transport)
 
-    def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+    def complete_raw(self, prompt: str) -> tuple[str, LLMUsage]:
         started_at = time.perf_counter()
         payload = {
             "model": self.model,
@@ -120,7 +135,6 @@ class OpenAIClient:
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         content = raw["choices"][0]["message"]["content"]
         usage = raw.get("usage", {})
-        llm_response = parse_llm_response(content)
         metadata = LLMUsage(
             provider=self.provider,
             model=self.model,
@@ -129,7 +143,11 @@ class OpenAIClient:
             latency_ms=latency_ms,
             used_llm=True,
         )
-        return llm_response, metadata
+        return content, metadata
+
+    def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+        content, metadata = self.complete_raw(prompt)
+        return parse_llm_response(content), metadata
 
 
 class AnthropicClient:
@@ -146,6 +164,7 @@ class AnthropicClient:
     ) -> None:
         self.provider = "anthropic"
         self.model = model
+        self.agentic = True
         self._api_key = api_key
         self._temperature = temperature
         self._max_tokens = max_tokens
@@ -153,7 +172,7 @@ class AnthropicClient:
         self._system_prompt = compose_system_prompt(system_prompt)
         self._http = _HTTPClient(transport=transport)
 
-    def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+    def complete_raw(self, prompt: str) -> tuple[str, LLMUsage]:
         started_at = time.perf_counter()
         payload = {
             "model": self.model,
@@ -175,7 +194,6 @@ class AnthropicClient:
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         content = raw["content"][0]["text"]
         usage = raw.get("usage", {})
-        llm_response = parse_llm_response(content)
         metadata = LLMUsage(
             provider=self.provider,
             model=self.model,
@@ -184,7 +202,11 @@ class AnthropicClient:
             latency_ms=latency_ms,
             used_llm=True,
         )
-        return llm_response, metadata
+        return content, metadata
+
+    def complete(self, prompt: str) -> tuple[LLMResponse, LLMUsage]:
+        content, metadata = self.complete_raw(prompt)
+        return parse_llm_response(content), metadata
 
 
 def parse_llm_response(content: str) -> LLMResponse:

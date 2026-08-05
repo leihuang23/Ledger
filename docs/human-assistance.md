@@ -52,6 +52,22 @@ Provider output is still evidence-gated by the workflow. If a specific LLM root
 cause does not match retrieved deterministic evidence, the run falls back and
 records `unsupported_llm_diagnosis: deterministic_fallback` in trace metadata.
 
+With a real provider the investigation runs a **bounded ReAct loop**: the model
+decides which evidence tools to call (up to `AGENT_MAX_ITERATIONS`, default 8
+LLM decisions per run), so cost and latency scale with the loop budget instead
+of a single diagnosis call. Tool policy, argument sanitization, and the
+iteration cap are enforced server-side; LLM errors, malformed decisions, or an
+exhausted budget degrade honestly to the deterministic evidence sweep. To pin
+a real provider back to single-shot diagnosis (e.g. cost control or gradual
+rollout), set:
+
+```bash
+AGENT_LOOP_ENABLED=false
+```
+
+`LLM_PROVIDER=none` always stays on the deterministic pipeline regardless of
+this flag, keeping evals and the public demo reproducible.
+
 ### OpenAI Embeddings
 
 The default local hashing provider needs no key:

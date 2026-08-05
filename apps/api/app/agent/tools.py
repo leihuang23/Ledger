@@ -22,6 +22,29 @@ TOOL_IDS: frozenset[str] = frozenset(
 )
 
 
+def doc_query_for_incident(incident: dict[str, Any]) -> str:
+    """Derive a knowledge-base search query from an incident's own signals.
+
+    Shared by the deterministic investigation pipeline and the agentic loop's
+    degraded fallback so both build the same retrieval query from the same
+    incident evidence.
+    """
+    query_parts = [
+        incident["title"],
+        incident["summary"],
+        incident["metric_evidence"]["metric_name"],
+    ]
+    query_parts.extend(str(query) for query in incident["evidence"].get("source_queries", []))
+    query_parts.extend(
+        f"{signal['category']} {signal['subject']}"
+        for signal in incident.get("support_signals", [])[:4]
+    )
+    query_parts.extend(
+        signal["event_name"] for signal in incident.get("product_signals", [])[:4]
+    )
+    return " ".join(query_parts)
+
+
 class SqlEvidence(BaseModel):
     title: str
     reference_id: str
@@ -248,6 +271,49 @@ def query_revenue_metrics(
             ),
         ],
     )
+
+
+def disabled_revenue_metrics_fallback(
+    incident_id: str, incident: dict[str, Any]
+) -> dict[str, Any]:
+    """Degraded metrics payload used when ``query_revenue_metrics`` is
+    blocked by the agent version's tool policy (PRD FR-7).
+
+    Zeroed metrics plus ``tool_disabled: True`` keep the evidence classifier
+    on the explicit uncertainty path instead of reasoning from the incident
+    snapshot. Both the deterministic pipeline and the agentic loop must use
+    this same payload so a disabled tool behaves identically in either mode.
+    """
+    source = incident.get("metric_evidence", {})
+    incident_account_ids = [
+        account["account_id"]
+        for account in incident.get("affected_accounts", [])
+        if account.get("account_id")
+    ]
+    metric_evidence = {
+        "metric_name": source.get("metric_name", "unknown"),
+        "current_window_start": source.get("current_window_start"),
+        "current_window_end": source.get("current_window_end"),
+        "previous_window_start": source.get("previous_window_start"),
+        "previous_window_end": source.get("previous_window_end"),
+        "current_value_cents": 0,
+        "previous_value_cents": 0,
+        "delta_cents": 0,
+        "delta_percent": 0.0,
+        "failed_invoice_cents": 0,
+        "failed_invoice_count": 0,
+        "invoice_ids": [],
+    }
+    return {
+        "incident_id": incident_id,
+        "metric_evidence": metric_evidence,
+        "affected_account_ids": incident_account_ids,
+        "affected_accounts": [],
+        "invoice_ids": [],
+        "sql_evidence": [],
+        "tool_disabled": True,
+        "tool_disabled_reason": "query_revenue_metrics was not enabled for this agent version.",
+    }
 
 
 def fetch_account_details(

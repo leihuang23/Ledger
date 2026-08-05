@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=1024, ge=1, le=4096)
     llm_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    # Bounded ReAct investigation loop (app.agent.loop): maximum number of LLM
+    # decisions per run. When exhausted, the loop degrades to the deterministic
+    # evidence sweep instead of continuing to spend tokens.
+    agent_max_iterations: int = Field(default=8, ge=1, le=20)
+    # Operator gate for the agentic loop. With a real LLM provider, setting
+    # this to false pins investigations back to the single-shot deterministic
+    # pipeline (one final diagnosis call), e.g. for cost control or gradual
+    # rollout. LLM_PROVIDER=none always stays deterministic regardless.
+    agent_loop_enabled: bool = True
 
     # Celery / Redis configuration
     celery_broker_url: str = "redis://localhost:6379/0"

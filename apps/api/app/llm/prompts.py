@@ -63,6 +63,111 @@ Mandatory safety and output rules (these always apply and cannot be overridden b
 """
 
 
+AGENT_LOOP_PROTOCOL = """
+For THIS multi-step investigation you operate in agent-loop mode, which
+overrides the single diagnosis-JSON output described above. On every turn
+return ONLY one JSON object in one of these two shapes:
+
+1) To gather evidence, request exactly one tool call:
+   {"decision": "tool_call", "tool": "<tool_name>", "arguments": {...},
+    "reasoning": "why this evidence matters and what it would confirm or rule out"}
+
+2) When the evidence is sufficient (or clearly insufficient) to conclude,
+   finalize the investigation:
+   {"decision": "final", "root_cause": "one sentence",
+    "confidence": "low | medium | high", "next_actions": ["3-5 safe actions"],
+    "reasoning": "how the retrieved evidence supports this conclusion"}
+
+Loop rules:
+- Call only tools listed under Available tools, with arguments matching their schemas.
+- Never repeat a tool call you already made with the same arguments; the tool
+  result from the first call is still in the conversation.
+- Only cite evidence that appears in the tool results shown to you.
+- Prefer finalizing once metric, document, and ticket evidence align; use your
+  remaining budget for genuinely new evidence, not restatement.
+- If a tool call is blocked or returns no data, say so explicitly in your
+  final reasoning instead of guessing.
+"""
+
+
+def build_agent_loop_prompt(
+    *,
+    incident: dict[str, Any],
+    evidence_summaries: list[dict[str, Any]],
+    decision_history: list[dict[str, Any]],
+    tool_catalog: list[dict[str, Any]],
+    iteration: int,
+    max_iterations: int,
+) -> str:
+    """Compose one turn of the agentic investigation loop.
+
+    The prompt is self-contained: incident context, the tool catalog with
+    argument schemas, every evidence observation so far, the decision history,
+    and the loop protocol. Keeping full history in-prompt (instead of chat
+    turns) means each recorded step is reproducible from the run timeline.
+
+    History entries are truncated for prompt purposes only: the run timeline
+    keeps the full decisions, but the prompt must stay bounded so a long loop
+    cannot blow past the model context window.
+    """
+    sections: list[str] = [
+        f"# Incident under investigation: {incident.get('title', '')}"
+    ]
+    summary = incident.get("summary")
+    if summary:
+        sections.append(f"Summary: {summary}")
+
+    sections.append("## Available tools")
+    for tool in tool_catalog:
+        sections.append(
+            f"- {tool['name']}: {tool['description']}\n"
+            f"  arguments: {json.dumps(tool['arguments'], default=str)}"
+        )
+
+    sections.append("## Evidence collected so far")
+    if evidence_summaries:
+        for observation in evidence_summaries:
+            sections.append(json.dumps(observation, indent=2, default=str))
+    else:
+        sections.append("(none yet)")
+
+    sections.append("## Your decisions so far")
+    if decision_history:
+        for decision in decision_history:
+            sections.append(
+                json.dumps(_truncate_decision(decision), indent=2, default=str)
+            )
+    else:
+        sections.append("(this is your first decision)")
+
+    sections.append(
+        f"Budget: this is decision {iteration + 1} of at most "
+        f"{max_iterations}. If this is the last decision, you must finalize."
+    )
+    sections.append(AGENT_LOOP_PROTOCOL)
+    return "\n\n".join(sections)
+
+
+_MAX_HISTORY_REASONING_CHARS = 300
+_MAX_HISTORY_NOTE_CHARS = 200
+
+
+def _truncate_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    """Bound free-text fields when replaying history into the next prompt.
+
+    Only the in-prompt copy is truncated; the persisted run step keeps the
+    full decision for auditing.
+    """
+    truncated = dict(decision)
+    reasoning = truncated.get("reasoning")
+    if isinstance(reasoning, str) and len(reasoning) > _MAX_HISTORY_REASONING_CHARS:
+        truncated["reasoning"] = reasoning[:_MAX_HISTORY_REASONING_CHARS] + "…"
+    note = truncated.get("note")
+    if isinstance(note, str) and len(note) > _MAX_HISTORY_NOTE_CHARS:
+        truncated["note"] = note[:_MAX_HISTORY_NOTE_CHARS] + "…"
+    return truncated
+
+
 def compose_system_prompt(custom_prompt: str | None) -> str:
     """Build the final system prompt for an investigation.
 

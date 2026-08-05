@@ -48,7 +48,7 @@ flowchart LR
     web --> api["FastAPI control plane"]
     api --> registry["Agents, versions, tools, scopes"]
     api --> queue["Redis + Celery"]
-    queue --> workflow["Fixed LangGraph investigation DAG"]
+    queue --> workflow["LangGraph investigation workflow (dual mode)"]
     workflow --> evidence["SQL metrics · tickets · events · pgvector docs"]
     workflow --> safety["Tool policy + approval gate"]
     workflow --> traces["Local / Langfuse / LangSmith traces"]
@@ -60,7 +60,7 @@ flowchart LR
     evals --> queue
 ```
 
-The investigation graph is a **fixed linear DAG** (compiled per run). Published agent versions snapshot prompt, model, tools, and scopes; they are immutable through the runtime API. Every run persists steps, blocked calls, trace reference, usage/cost estimates, final report, mock actions, and approval decisions.
+The investigation workflow runs in two modes, selected by LLM capability and the `AGENT_LOOP_ENABLED` gate at run time. With a real provider (`LLM_PROVIDER=openai|anthropic`) it enters a **bounded ReAct loop** (`apps/api/app/agent/loop.py`): the model decides which evidence tool to call next (or to finalize), within an iteration budget, while tool policy, argument sanitization, and deduplication are enforced server-side. With `LLM_PROVIDER=none` it keeps the **fixed linear DAG** for fully reproducible evals. Published agent versions snapshot prompt, model, tools, and scopes; they are immutable through the runtime API. Every run persists steps (including every agent decision), blocked calls, trace reference, usage/cost estimates, final report, mock actions, and approval decisions.
 
 | Question | Surface |
 | --- | --- |
@@ -76,8 +76,8 @@ The investigation graph is a **fixed linear DAG** (compiled per run). Published 
 ## Evidence flow: anomaly → cited report
 
 1. **Anomaly** - dashboard/metrics detect MRR movement and link to a seeded incident.
-2. **Investigate** - workflow retrieves SQL metrics, invoices, support tickets, product events, and knowledge excerpts through explicit tools (permission-checked).
-3. **Classify** - a deterministic evidence classifier selects the scenario signature (or the uncertainty path). Optional LLM rewrites the diagnosis only when it agrees with that signature.
+2. **Investigate** - in agentic mode the LLM picks which tools to call and in what order; in deterministic mode the workflow retrieves SQL metrics, invoices, support tickets, product events, and knowledge excerpts through a fixed tool sequence (both paths are permission-checked).
+3. **Classify** - a deterministic evidence classifier validates the scenario signature (or the uncertainty path). The LLM's final diagnosis is adopted only when it agrees with that signature; otherwise the deterministic diagnosis wins.
 4. **Report** - final report lists root cause, contributing factors, affected accounts, and **citations** to retrieved SQL, tickets, documents, or incidents. Claims without retrieved evidence are not emitted.
 5. **Act (gated)** - recommended follow-ups become mock actions; high-risk ones open approval requests and stay blocked until approve/reject.
 6. **Audit** - step log, trace id, token/cost estimate, failures, and approval outcomes remain reconstructable from the database.
@@ -171,7 +171,7 @@ cd apps/api && python -m app.seed --json
 # ~60 accounts, 6 open scenario incidents, 6 eval cases, knowledge docs/chunks
 ```
 
-Optional LLM synthesis: set `LLM_PROVIDER` + provider key; default `LLM_PROVIDER=none` needs no credentials. Root cause still comes from the deterministic classifier.
+Optional agentic LLM mode: set `LLM_PROVIDER` + provider key; default `LLM_PROVIDER=none` needs no credentials and stays fully deterministic. With a real provider the investigation runs a bounded ReAct loop (up to `AGENT_MAX_ITERATIONS` decisions; `AGENT_LOOP_ENABLED=false` pins back to single-shot diagnosis). Root cause adoption is still gated by the deterministic classifier.
 
 Backend-only / frontend-only / Celery / embedding notes: see [docs/project-1-run-and-test-runbook.md](docs/project-1-run-and-test-runbook.md) and env examples under `apps/api/.env.example`.
 
@@ -227,7 +227,7 @@ Use fresh command summaries as the source of truth for pass counts; do not treat
 - **Public demo is read-only** - token-gated mutations for private/operator sessions only.
 - **No live commerce** - optional Stripe test-mode evidence adapter only; no checkout/refunds/Connect.
 - **Mocks, not messengers** - approval proves the state machine and audit boundary, not delivery.
-- **Fixed investigation DAG** - control plane versions configuration, not dynamic graph topology.
+- **Bounded, not open-ended, agency** - the ReAct loop has a fixed tool surface, an iteration budget, sanitized arguments, and a deterministic fallback; there is no dynamic graph topology or self-modifying tool registry.
 - **Deterministic eval scoring** - exact root-cause signatures; no LLM-as-judge or full semantic equivalence layer yet.
 - **Token gates ≠ multi-tenant auth** - not production identity, RBAC, or tenant isolation.
 - **Classifier space** - anomalies outside seeded signatures take the explicit uncertainty path.

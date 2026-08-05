@@ -7,6 +7,10 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
+from app.agent.loop import (
+    TERMINATION_FINAL,
+    InvestigationAgentLoop,
+)
 from app.agent.persistence import AgentRunRecorder, utcnow_naive
 from app.agent.tracing import AgentTraceHandle
 from app.agent.schemas import (
@@ -21,13 +25,15 @@ from app.llm import (
     build_investigation_prompt,
     estimate_cost_usd,
 )
-from app.llm.schemas import LLMUsage
+from app.llm.schemas import AgentFinalDecision, LLMUsage
 from app.agent.tools import (
     TOOL_IDS,
     FetchAccountDetailsInput,
     FetchSupportTicketsInput,
     QueryRevenueMetricsInput,
     SearchDocsInput,
+    disabled_revenue_metrics_fallback,
+    doc_query_for_incident,
     fetch_account_details,
     fetch_support_tickets,
     query_revenue_metrics,
@@ -46,6 +52,7 @@ class InvestigationState(TypedDict, total=False):
     account_details: dict[str, Any]
     doc_results: dict[str, Any]
     support_tickets: dict[str, Any]
+    agentic_result: dict[str, Any]
     final_report: dict[str, Any]
 
 
@@ -63,8 +70,27 @@ def run_investigation_workflow(
     llm_client: LLMClient | None = None,
     enabled_tool_ids: set[str] | frozenset[str] | None = None,
     blocked_reasons: dict[str, str] | None = None,
+    max_iterations: int | None = None,
 ) -> InvestigationReport:
     recorder = AgentRunRecorder(session, run, trace)
+    client = llm_client or NoopLLMClient()
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    # Mode selection is capability-based AND operator-gated: only clients that
+    # advertise agentic support (``complete_raw`` for the decision loop) enter
+    # the bounded ReAct loop, and only when AGENT_LOOP_ENABLED is on. Noop
+    # clients and legacy single-shot clients stay on the deterministic
+    # pipeline, which keeps evals and the public demo reproducible with
+    # LLM_PROVIDER=none. Set AGENT_LOOP_ENABLED=false to pin a real provider
+    # back to single-shot diagnosis.
+    agentic_mode = (
+        settings.agent_loop_enabled
+        and bool(getattr(client, "agentic", False))
+        and hasattr(client, "complete_raw")
+    )
+    if max_iterations is None:
+        max_iterations = settings.agent_max_iterations
 
     if enabled_tool_ids is None:
         enabled = set(TOOL_IDS)
@@ -105,7 +131,7 @@ def run_investigation_workflow(
         incident = state["incident"]
 
         def build_plan() -> dict[str, Any]:
-            doc_query = _doc_query_for_incident(incident)
+            doc_query = doc_query_for_incident(incident)
             account_ids = [
                 account["account_id"] for account in incident["affected_accounts"]
             ]
@@ -155,6 +181,74 @@ def run_investigation_workflow(
         )
         return {"plan": plan}
 
+    def agent_loop_node(state: InvestigationState) -> dict[str, Any]:
+        """Agentic mode: the LLM drives a bounded evidence-gathering loop.
+
+        The loop enforces the same tool policy, sanitizes LLM-proposed
+        arguments against known identifiers, and degrades to the
+        deterministic evidence sweep on LLM errors or budget exhaustion.
+        """
+        loop = InvestigationAgentLoop(
+            session=session,
+            recorder=recorder,
+            llm_client=client,
+            incident=state["incident"],
+            enabled_tool_ids=enabled,
+            blocked_reasons=blocked_reasons or {},
+            max_iterations=max_iterations or 8,
+        )
+        result = loop.run()
+
+        # Enabled tools the agent never requested are recorded as visible
+        # NEUTRAL steps (not ``blocked``: nothing denied them, so the
+        # blocked-step contract and UI keep meaning "policy violation").
+        # Policy-blocked tools already have their own blocked step and are
+        # excluded here. Degraded runs skip this: the deterministic sweep
+        # already executed every enabled tool.
+        if result.termination == TERMINATION_FINAL:
+            not_requested = (
+                enabled - loop.dispatched_tool_ids() - loop.blocked_tool_ids()
+            )
+            for tool_id in sorted(not_requested):
+
+                def capture_skip(tid: str = tool_id) -> dict[str, Any]:
+                    return {
+                        "skipped_by_agent": True,
+                        "note": (
+                            f"{tid} was enabled but the agent finalized "
+                            "without requesting it."
+                        ),
+                    }
+
+                recorder.record(
+                    stage="agent tool call",
+                    tool_name=tool_id,
+                    inputs={"source": "agent_finalized_without_request"},
+                    action=capture_skip,
+                )
+
+        updates: dict[str, Any] = {
+            "agentic_result": {
+                "final_decision": (
+                    result.final_decision.model_dump(mode="json")
+                    if result.final_decision is not None
+                    else None
+                ),
+                "usages": [usage.model_dump(mode="json") for usage in result.usages],
+                "termination": result.termination,
+                "error": result.error,
+            }
+        }
+        if result.revenue_metrics is not None:
+            updates["revenue_metrics"] = result.revenue_metrics
+        if result.account_details is not None:
+            updates["account_details"] = result.account_details
+        if result.doc_results is not None:
+            updates["doc_results"] = result.doc_results
+        if result.support_tickets is not None:
+            updates["support_tickets"] = result.support_tickets
+        return updates
+
     def query_metrics_node(state: InvestigationState) -> dict[str, Any]:
         incident_id = state["incident_id"]
         if "query_revenue_metrics" in enabled:
@@ -170,7 +264,7 @@ def run_investigation_workflow(
             # Blocked by the agent version's tool policy (PRD FR-7). Record a
             # visible ``blocked`` step with the reason, but still produce the
             # degraded-evidence fallback so report synthesis can cite it.
-            fallback = _disabled_revenue_metrics(incident_id, state["incident"])
+            fallback = disabled_revenue_metrics_fallback(incident_id, state["incident"])
             recorder.record_blocked(
                 stage="query metrics",
                 tool_name="query_revenue_metrics",
@@ -318,7 +412,7 @@ def run_investigation_workflow(
             model_usage=usage_box,
             action=lambda: _synthesize_report(
                 state,
-                llm_client=llm_client or NoopLLMClient(),
+                llm_client=client,
                 run=recorder.run,
                 enabled_tool_ids=enabled,
                 usage_box=usage_box,
@@ -327,18 +421,26 @@ def run_investigation_workflow(
         return {"final_report": report}
 
     builder.add_node("intake", intake_node)
-    builder.add_node("plan", plan_node)
-    builder.add_node("query_metrics", query_metrics_node)
-    builder.add_node("search_docs", search_docs_node)
-    builder.add_node("fetch_tickets", fetch_tickets_node)
-    builder.add_node("synthesize_report", synthesize_report_node)
-    builder.add_edge(START, "intake")
-    builder.add_edge("intake", "plan")
-    builder.add_edge("plan", "query_metrics")
-    builder.add_edge("query_metrics", "search_docs")
-    builder.add_edge("search_docs", "fetch_tickets")
-    builder.add_edge("fetch_tickets", "synthesize_report")
-    builder.add_edge("synthesize_report", END)
+    if agentic_mode:
+        builder.add_node("agent_loop", agent_loop_node)
+        builder.add_node("synthesize_report", synthesize_report_node)
+        builder.add_edge(START, "intake")
+        builder.add_edge("intake", "agent_loop")
+        builder.add_edge("agent_loop", "synthesize_report")
+        builder.add_edge("synthesize_report", END)
+    else:
+        builder.add_node("plan", plan_node)
+        builder.add_node("query_metrics", query_metrics_node)
+        builder.add_node("search_docs", search_docs_node)
+        builder.add_node("fetch_tickets", fetch_tickets_node)
+        builder.add_node("synthesize_report", synthesize_report_node)
+        builder.add_edge(START, "intake")
+        builder.add_edge("intake", "plan")
+        builder.add_edge("plan", "query_metrics")
+        builder.add_edge("query_metrics", "search_docs")
+        builder.add_edge("search_docs", "fetch_tickets")
+        builder.add_edge("fetch_tickets", "synthesize_report")
+        builder.add_edge("synthesize_report", END)
 
     graph = builder.compile()
     final_state = graph.invoke({"run_id": run.id, "incident_id": run.incident_id})
@@ -348,36 +450,10 @@ def run_investigation_workflow(
 def _disabled_revenue_metrics(
     incident_id: str, incident: dict[str, Any]
 ) -> dict[str, Any]:
-    source = incident.get("metric_evidence", {})
-    incident_account_ids = [
-        account["account_id"]
-        for account in incident.get("affected_accounts", [])
-        if account.get("account_id")
-    ]
-    metric_evidence = {
-        "metric_name": source.get("metric_name", "unknown"),
-        "current_window_start": source.get("current_window_start"),
-        "current_window_end": source.get("current_window_end"),
-        "previous_window_start": source.get("previous_window_start"),
-        "previous_window_end": source.get("previous_window_end"),
-        "current_value_cents": 0,
-        "previous_value_cents": 0,
-        "delta_cents": 0,
-        "delta_percent": 0.0,
-        "failed_invoice_cents": 0,
-        "failed_invoice_count": 0,
-        "invoice_ids": [],
-    }
-    return {
-        "incident_id": incident_id,
-        "metric_evidence": metric_evidence,
-        "affected_account_ids": incident_account_ids,
-        "affected_accounts": [],
-        "invoice_ids": [],
-        "sql_evidence": [],
-        "tool_disabled": True,
-        "tool_disabled_reason": "query_revenue_metrics was not enabled for this agent version.",
-    }
+    """Backward-compatible alias; canonical implementation lives in
+    ``app.agent.tools`` so the agentic loop and the deterministic pipeline
+    share one disabled-tool payload."""
+    return disabled_revenue_metrics_fallback(incident_id, incident)
 
 
 def _synthesize_report(
@@ -389,29 +465,42 @@ def _synthesize_report(
     usage_box: list[LLMUsage] | None = None,
 ) -> InvestigationReport:
     incident = state["incident"]
-    revenue_metrics = state.get("revenue_metrics", {
+    revenue_metrics = state.get("revenue_metrics") or {
         "incident_id": incident["id"],
         "metric_evidence": incident["metric_evidence"],
         "affected_account_ids": [a["account_id"] for a in incident["affected_accounts"]],
         "affected_accounts": incident["affected_accounts"],
         "invoice_ids": incident["metric_evidence"].get("invoice_ids", []),
         "sql_evidence": [],
-    })
+    }
     account_details = state.get("account_details", {"accounts": []})
     doc_results = state.get("doc_results", {"query": "", "results": []})
     support_tickets = state.get("support_tickets", {"tickets": []})
 
-    diagnosis, llm_usage = diagnose_with_llm_or_fallback(
-        llm_client=llm_client,
-        incident=incident,
-        revenue_metrics=revenue_metrics,
-        account_details=account_details,
-        doc_results=doc_results,
-        support_tickets=support_tickets,
-    )
+    agentic_result = state.get("agentic_result")
+    if agentic_result is not None:
+        diagnosis, llm_usage = _resolve_agentic_diagnosis(
+            agentic_result=agentic_result,
+            incident=incident,
+            revenue_metrics=revenue_metrics,
+            account_details=account_details,
+            doc_results=doc_results,
+            support_tickets=support_tickets,
+            llm_client=llm_client,
+        )
+    else:
+        diagnosis, llm_usage = diagnose_with_llm_or_fallback(
+            llm_client=llm_client,
+            incident=incident,
+            revenue_metrics=revenue_metrics,
+            account_details=account_details,
+            doc_results=doc_results,
+            support_tickets=support_tickets,
+        )
     run.trace_metadata = {
         **run.trace_metadata,
         "agent_version_id": run.agent_version_id,
+        "agent_mode": "agentic" if agentic_result is not None else "deterministic",
         "llm_provider": llm_usage.provider,
         "llm_model": llm_usage.model,
         "llm_latency_ms": llm_usage.latency_ms,
@@ -731,23 +820,6 @@ def _confidence_for_report(
     return "low"
 
 
-def _doc_query_for_incident(incident: dict[str, Any]) -> str:
-    query_parts = [
-        incident["title"],
-        incident["summary"],
-        incident["metric_evidence"]["metric_name"],
-    ]
-    query_parts.extend(str(query) for query in incident["evidence"].get("source_queries", []))
-    query_parts.extend(
-        f"{signal['category']} {signal['subject']}"
-        for signal in incident.get("support_signals", [])[:4]
-    )
-    query_parts.extend(
-        signal["event_name"] for signal in incident.get("product_signals", [])[:4]
-    )
-    return " ".join(query_parts)
-
-
 def _hypotheses_for_incident(incident: dict[str, Any]) -> list[str]:
     """Derive working hypotheses from the incident's own signals.
 
@@ -795,6 +867,94 @@ def _hypotheses_for_incident(incident: dict[str, Any]) -> list[str]:
         "Retrieved runbooks match the observed invoice and ticket pattern."
     )
     return hypotheses
+
+
+def _resolve_agentic_diagnosis(
+    *,
+    agentic_result: dict[str, Any],
+    incident: dict[str, Any],
+    revenue_metrics: dict[str, Any],
+    account_details: dict[str, Any],
+    doc_results: dict[str, Any],
+    support_tickets: dict[str, Any],
+    llm_client: LLMClient,
+) -> tuple[Diagnosis, LLMUsage]:
+    """Resolve the loop's outcome into the report diagnosis.
+
+    The deterministic evidence classifier is computed over whatever evidence the
+    loop actually gathered. A final LLM proposal is adopted only when it
+    passes the same evidence-support gate as the single-shot path; degraded
+    terminations (LLM error, malformed decisions, exhausted budget) always
+    yield the deterministic diagnosis with an honest fallback reason.
+    """
+    deterministic_diagnosis = _diagnose_from_evidence(
+        revenue_metrics=revenue_metrics,
+        account_details=account_details,
+        doc_results=doc_results,
+        support_tickets=support_tickets,
+    )
+    usages = [
+        LLMUsage.model_validate(item) for item in agentic_result.get("usages", [])
+    ]
+    termination = str(agentic_result.get("termination", "final_decision"))
+    usage = _aggregate_loop_usages(
+        usages,
+        provider=getattr(llm_client, "provider", "unknown"),
+        model=getattr(llm_client, "model", "unknown"),
+        termination=termination,
+        error=agentic_result.get("error"),
+    )
+
+    final_payload = agentic_result.get("final_decision")
+    if final_payload is None:
+        return deterministic_diagnosis, usage
+
+    decision = AgentFinalDecision.model_validate(final_payload)
+    llm_diagnosis = Diagnosis(
+        root_cause=decision.root_cause,
+        next_actions=decision.next_actions or _fallback_next_actions(),
+        is_specific=decision.confidence in {"medium", "high"},
+    )
+    if _diagnosis_is_supported_by_evidence(
+        llm_diagnosis=llm_diagnosis,
+        deterministic_diagnosis=deterministic_diagnosis,
+    ):
+        return llm_diagnosis, usage
+    return deterministic_diagnosis, usage.model_copy(
+        update={"fallback_reason": "unsupported_llm_diagnosis: deterministic_fallback"}
+    )
+
+
+def _aggregate_loop_usages(
+    usages: list[LLMUsage],
+    *,
+    provider: str,
+    model: str,
+    termination: str,
+    error: object | None,
+) -> LLMUsage:
+    """Aggregate per-decision loop usage into the run-level usage record.
+
+    Degraded terminations keep ``used_llm`` honest (tokens were still spent)
+    while surfacing the degradation reason in ``fallback_reason``.
+    """
+    used_llm = any(usage.used_llm for usage in usages)
+    fallback_reason: str | None = None
+    if termination != TERMINATION_FINAL:
+        fallback_reason = f"agent_loop_degraded: {termination}"
+        if error:
+            fallback_reason += f" ({error})"
+    elif not used_llm:
+        fallback_reason = "llm_provider=none"
+    return LLMUsage(
+        provider=provider,
+        model=model,
+        prompt_tokens=sum(usage.prompt_tokens for usage in usages),
+        completion_tokens=sum(usage.completion_tokens for usage in usages),
+        latency_ms=sum(usage.latency_ms for usage in usages),
+        used_llm=used_llm,
+        fallback_reason=fallback_reason,
+    )
 
 
 def diagnose_with_llm_or_fallback(
