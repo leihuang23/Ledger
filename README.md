@@ -60,7 +60,7 @@ flowchart LR
     evals --> queue
 ```
 
-The investigation workflow runs in two modes, selected by LLM capability and the `AGENT_LOOP_ENABLED` gate at run time. With a real provider (`LLM_PROVIDER=openai|anthropic`) it enters a **bounded ReAct loop** (`apps/api/app/agent/loop.py`): the model decides which evidence tool to call next (or to finalize), within an iteration budget, while tool policy, argument sanitization, and deduplication are enforced server-side. With `LLM_PROVIDER=none` it keeps the **fixed linear DAG** for fully reproducible evals. Published agent versions snapshot prompt, model, tools, and scopes; they are immutable through the runtime API. Every run persists steps (including every agent decision), blocked calls, trace reference, usage/cost estimates, final report, mock actions, and approval decisions.
+The investigation workflow runs in two modes, selected by LLM capability and the `AGENT_LOOP_ENABLED` gate at run time. With a real provider (`LLM_PROVIDER=openai|anthropic`) it enters a **bounded ReAct loop** (`apps/api/app/agent/loop.py`): the model decides which evidence tool to call next (or to finalize), within an iteration budget, while tool policy, argument sanitization, and deduplication are enforced server-side. With `LLM_PROVIDER=none` (or `AGENT_LOOP_ENABLED=false`) it keeps the **fixed linear DAG** for fully reproducible evals. Published agent versions snapshot prompt, model, tools, and scopes; they are immutable through the runtime API. Every run persists steps (including every agent decision), blocked calls, trace reference, usage/cost estimates, final report, mock actions, and approval decisions.
 
 | Question | Surface |
 | --- | --- |
@@ -171,7 +171,7 @@ cd apps/api && python -m app.seed --json
 # ~60 accounts, 6 open scenario incidents, 6 eval cases, knowledge docs/chunks
 ```
 
-Optional agentic LLM mode: set `LLM_PROVIDER` + provider key; default `LLM_PROVIDER=none` needs no credentials and stays fully deterministic. With a real provider the investigation runs a bounded ReAct loop (up to `AGENT_MAX_ITERATIONS` decisions; `AGENT_LOOP_ENABLED=false` pins back to single-shot diagnosis). Root cause adoption is still gated by the deterministic classifier.
+Optional agentic LLM mode: set `LLM_PROVIDER` + provider key; default `LLM_PROVIDER=none` needs no credentials and stays fully deterministic. With a real provider the investigation runs a bounded ReAct loop (up to `AGENT_MAX_ITERATIONS` decisions; `AGENT_LOOP_ENABLED=false` pins back to single-shot diagnosis: a deterministic evidence sweep plus one gated diagnosis call). Root cause adoption is still gated by the deterministic classifier.
 
 Backend-only / frontend-only / Celery / embedding notes: see [docs/project-1-run-and-test-runbook.md](docs/project-1-run-and-test-runbook.md) and env examples under `apps/api/.env.example`.
 
