@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.agents.service import DEFAULT_AGENT_VERSION_ID, PHASE6_AGENT_VERSION_ID
 from app.models import Account, AgentVersion, Tool
 from app.seed import ensure_seeded_if_empty
+from app.tools.registry import BUILTIN_TOOL_DEFINITIONS
 from app.tools.service import register_builtin_tools
 
 API_ROOT = Path(__file__).resolve().parent.parent
@@ -104,7 +105,13 @@ def test_populated_project1_database_upgrades_to_phase6_and_bootstraps() -> None
             assert phase6.forked_from_version_id == v1.id
             assert degraded is not None
             assert degraded.forked_from_version_id == phase6.id
-            assert session.scalar(sa.select(sa.func.count()).select_from(Tool)) == 7
+            # The bootstrap registers the full built-in catalog, so the tool
+            # count must track the registry (not a hard-coded snapshot) to stay
+            # aligned when new built-in tools are added.
+            assert (
+                session.scalar(sa.select(sa.func.count()).select_from(Tool))
+                == len(BUILTIN_TOOL_DEFINITIONS)
+            )
     finally:
         if upgrade_engine is not None:
             upgrade_engine.dispose()
