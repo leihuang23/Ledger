@@ -68,12 +68,13 @@ def test_tool_registry_lists_the_governed_builtin_surface(client: TestClient) ->
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 7
+    assert payload["total"] == 8
     assert {tool["id"] for tool in payload["tools"]} == {
         "query_revenue_metrics",
         "fetch_account_details",
         "search_docs",
         "fetch_support_tickets",
+        "list_pending_approvals",
         "create_mock_action",
         "request_approval",
         "run_eval",

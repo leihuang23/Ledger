@@ -17,6 +17,7 @@ dependencies = [
   "langfuse>=3,<4",
   "langgraph>=1.0,<2",
   "langsmith>=0.3.13,<1",
+  "mcp>=1.9,<2",
   "psycopg[binary]>=3.2,<4",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
@@ -28,13 +29,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx2>=2.4,<3",
-  "pytest>=8,<9",
+  "pytest>=9.0.3,<10",
 ]
 
 [project.scripts]
 seed-saas-data = "app.seed:main"
 ingest-knowledge-docs = "app.knowledge.ingestion:main"
 run-eval-suite = "app.evals.runner:main"
+ledger-mcp-server = "app.mcp.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

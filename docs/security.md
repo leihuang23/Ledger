@@ -9,6 +9,7 @@ This is a public read-only demo with synthetic data. Its public surface is read-
 3. **Agent version → tool runtime:** both the tool id and its permission scope must be present in the published version snapshot before dispatch.
 4. **Workflow → external action:** the workflow creates mock actions only. High-risk actions create pending approvals and cannot execute before a recorded decision.
 5. **Application → tracing provider:** hosted payloads default to metadata and summaries. Raw evidence export is opt-in.
+6. **External LLM client → MCP server (`app/mcp`):** every MCP tool dispatches through the same tool registry, so id + scope policy still applies. `read_data` tools are open (public demo is read-only); governed tools (`write_mock_action`, `request_approval`) require `MCP_OPERATOR_TOKEN` to match `DEMO_OPERATOR_TOKEN` under `secrets.compare_digest`, fail closed in `demo` when `DEMO_OPERATOR_TOKEN` is unset, and high-risk actions still land as pending approval requests. `run_eval` is not exposed over MCP.
 
 ## OWASP LLM risk mapping
 

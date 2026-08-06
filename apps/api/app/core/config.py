@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     zhipu_api_key: str | None = None
     document_ingest_token: str | None = None
     eval_run_token: str | None = None
+    # Client-supplied credential for the MCP server's governed tools. It is
+    # compared against ``demo_operator_token`` with ``secrets.compare_digest``
+    # and fails closed in the ``demo`` env when ``demo_operator_token`` is
+    # unset, mirroring the HTTP ``require_demo_operator_access`` gate.
+    mcp_operator_token: str | None = None
     observability_provider: Literal["auto", "local", "langfuse", "langsmith"] = "auto"
     observability_full_payloads: bool = False
     observability_timeout_seconds: int = Field(default=2, ge=1, le=30)
@@ -105,6 +110,7 @@ class Settings(BaseSettings):
         "document_ingest_token",
         "demo_operator_token",
         "eval_run_token",
+        "mcp_operator_token",
         "langfuse_public_key",
         "langfuse_secret_key",
         "langfuse_project_id",

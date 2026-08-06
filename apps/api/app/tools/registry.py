@@ -20,18 +20,40 @@ from app.agent.tools import (
     query_revenue_metrics,
     search_docs,
 )
-from app.approvals.schemas import MockActionCreate, MockActionRead
+from app.approvals.schemas import (
+    ApprovalRequestRead,
+    MockActionCreate,
+    MockActionRead,
+)
 from app.approvals.service import (
     create_low_risk_mock_action,
+    list_approval_requests,
     request_high_risk_approval,
 )
 from app.evals.runner import run_eval_suite
 from app.evals.schemas import EvalDatasetRunRequest, EvalRunSummary
 from app.tools.scopes import PermissionScope
+from sqlalchemy.orm import Session
 
 
 class InvalidImplementationRefError(ValueError):
     pass
+
+
+class ListPendingApprovalsInput(BaseModel):
+    """Empty payload for the pending-approval queue query."""
+
+
+class PendingApprovalsOutput(BaseModel):
+    items: list[ApprovalRequestRead]
+
+
+def list_pending_approvals(
+    session: Session, payload: ListPendingApprovalsInput
+) -> PendingApprovalsOutput:
+    """Return the pending approval queue (read-only registry tool)."""
+    requests = list_approval_requests(session, status="pending")
+    return PendingApprovalsOutput(items=requests)
 
 
 @dataclass(frozen=True)
@@ -94,6 +116,16 @@ BUILTIN_TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = (
         permission_scope="read_data",
         implementation_ref="app.agent.tools.fetch_support_tickets",
         implementation=fetch_support_tickets,
+    ),
+    ToolDefinition(
+        id="list_pending_approvals",
+        name="list_pending_approvals",
+        description="List pending approval requests awaiting a human decision.",
+        input_model=ListPendingApprovalsInput,
+        output_model=PendingApprovalsOutput,
+        permission_scope="read_data",
+        implementation_ref="app.tools.registry.list_pending_approvals",
+        implementation=list_pending_approvals,
     ),
     ToolDefinition(
         id="create_mock_action",

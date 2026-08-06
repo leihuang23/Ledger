@@ -34,6 +34,10 @@ ACTION_ACTOR = "agent"
 # from agent-proposed ones. Client-supplied actor fields are never trusted.
 OPERATOR_ACTOR = "operator"
 APPROVER_ACTOR = "demo-approver"
+# Actions created through the MCP server are attributed to the MCP client so
+# the audit trail can tell external-client-injected actions apart from
+# agent-proposed and operator-injected ones.
+MCP_CLIENT_ACTOR = "mcp-client"
 
 
 class RunStateConflictError(Exception):
@@ -83,16 +87,31 @@ def create_mock_action(
     runtime dispatches those bindings through this operator entry point.
 
     Operator-created actions are attributed to ``OPERATOR_ACTOR`` in the audit
-    trail; the governed tool wrappers below pass ``ACTION_ACTOR`` instead.
+    trail; the governed tool wrappers below pass ``ACTION_ACTOR`` by default
+    (the MCP dispatch passes ``MCP_CLIENT_ACTOR`` instead, after running the
+    same ``validate_operator_action_for_run`` guard).
     """
     # Lock the run row so the state check serializes with approval decisions
     # and executor finalization (both take the same lock).
-    run = _lock_approval_run(session, payload.run_id)
-    _validate_operator_action_run_state(run, payload.action_type)
+    validate_operator_action_for_run(session, payload.run_id, payload.action_type)
 
     action = _create_mock_action_record(session, payload, actor=actor)
     session.commit()
     return get_mock_action(session, action.id)
+
+
+def validate_operator_action_for_run(
+    session: Session, run_id: str, action_type: str
+) -> None:
+    """Operator-policy guard shared by every externally driven action entry.
+
+    Locks the run row and validates the run-state policy, so the HTTP operator
+    API (``POST /mock-actions``) and the MCP governed tools stay consistent:
+    a pending approval can never be attached to an in-flight or terminal run.
+    Raises ``RunStateConflictError`` when the run lifecycle forbids the action.
+    """
+    run = _lock_approval_run(session, run_id)
+    _validate_operator_action_run_state(run, action_type)
 
 
 def _validate_operator_action_run_state(run: AgentRun, action_type: str) -> None:
@@ -129,35 +148,44 @@ def _validate_operator_action_run_state(run: AgentRun, action_type: str) -> None
 
 
 def create_low_risk_mock_action(
-    session: Session, payload: MockActionCreate
+    session: Session,
+    payload: MockActionCreate,
+    *,
+    actor: str = ACTION_ACTOR,
 ) -> MockActionRead:
     """Registered write tool that cannot create approval requests."""
     if classify_action_risk(payload.action_type) == "high":
         raise ValueError(
             f"{payload.action_type} requires the request_approval tool"
         )
-    return _create_tool_mock_action(session, payload)
+    return _create_tool_mock_action(session, payload, actor=actor)
 
 
 def request_high_risk_approval(
-    session: Session, payload: MockActionCreate
+    session: Session,
+    payload: MockActionCreate,
+    *,
+    actor: str = ACTION_ACTOR,
 ) -> MockActionRead:
     """Registered approval tool that accepts only high-risk action drafts."""
     if classify_action_risk(payload.action_type) != "high":
         raise ValueError(
             f"{payload.action_type} does not require an approval request"
         )
-    return _create_tool_mock_action(session, payload)
+    return _create_tool_mock_action(session, payload, actor=actor)
 
 
 def _create_tool_mock_action(
-    session: Session, payload: MockActionCreate
+    session: Session,
+    payload: MockActionCreate,
+    *,
+    actor: str = ACTION_ACTOR,
 ) -> MockActionRead:
-    """Agent-actor tool entry: mirrors ``create_mock_action`` without the
+    """Tool entry: mirrors ``create_mock_action`` without the
     operator run-state guard so mid-run (``running``) dispatch stays legal."""
     if session.get(AgentRun, payload.run_id) is None:
         raise LookupError(f"Unknown agent run id: {payload.run_id}")
-    action = _create_mock_action_record(session, payload, actor=ACTION_ACTOR)
+    action = _create_mock_action_record(session, payload, actor=actor)
     session.commit()
     return get_mock_action(session, action.id)
 

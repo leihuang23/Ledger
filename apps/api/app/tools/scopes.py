@@ -30,6 +30,7 @@ TOOL_SCOPES: dict[str, str] = {
     "fetch_account_details": "read_data",
     "search_docs": "read_data",
     "fetch_support_tickets": "read_data",
+    "list_pending_approvals": "read_data",
     "create_mock_action": "write_mock_action",
     "request_approval": "request_approval",
     "run_eval": "run_eval",

@@ -71,6 +71,10 @@ The investigation workflow runs in two modes, selected by LLM capability and the
 | Did a version regress? | Eval Studio A-vs-B |
 | Cost / latency? | Observability dashboard |
 
+## MCP Server (external LLM clients)
+
+`apps/api/app/mcp` is a FastMCP adapter that exposes the existing tool registry to external MCP clients (stdio transport, `python -m app.mcp` or `ledger-mcp-server`). It introduces no second tool system: every tool dispatches through `app.tools.registry`, so scope policy and Pydantic schemas are inherited. `read_data` evidence tools are open; governed tools (`write_mock_action`, `request_approval`) require `MCP_OPERATOR_TOKEN` to match `DEMO_OPERATOR_TOKEN` (`secrets.compare_digest`) and fail closed in `APP_ENV=demo` when it is unset. High-risk actions always become pending approval requests; `list_pending_approvals` lets clients observe the queue. Behavior is covered by `tests/test_mcp_server.py`.
+
 ---
 
 ## Evidence flow: anomaly → cited report
