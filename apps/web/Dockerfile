@@ -1,5 +1,5 @@
 # Dependency installation stage.
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Build stage: compile the Next.js application.
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # Runtime stage: minimal image with non-root user and health check.
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 WORKDIR /app
 
