@@ -190,6 +190,9 @@ cd apps/api && python -m pytest
 # Eval suite (deterministic)
 cd apps/api && python -m app.evals.runner --json
 
+# Dependency vulnerability scan (also runs in CI)
+cd apps/api && python -m pip install pip-audit && pip-audit
+
 # Frontend
 cd apps/web && npm test && npm run lint && npm run build
 
